@@ -1,4 +1,4 @@
-const { RepairOrder, InventoryItem, Client, Device } = require("../models");
+const { RepairOrder, InventoryItem, Client, Device, User } = require("../models");
 const { asyncHandler } = require("../utils/asyncHandler");
 
 const summary = asyncHandler(async (req, res) => {
@@ -12,6 +12,7 @@ const summary = asyncHandler(async (req, res) => {
       include: [
         { model: Client, as: "client" },
         { model: Device, as: "device" },
+        { model: User, as: "technician", attributes: ["id", "name", "email", "role", "status"] },
       ],
       order: [["createdAt", "DESC"]],
       limit: 5,
