@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000/api";
+const API_BASE_URL = import.meta.env?.VITE_API_URL ?? "http://127.0.0.1:4000/api";
 
 async function request(path, options = {}) {
   const { token, headers, ...rest } = options;
@@ -14,7 +14,12 @@ async function request(path, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.message || "No se pudo completar la solicitud");
+    const fieldMessage = Object.values(data.errors ?? {})[0];
+    const message = data.message || "No se pudo completar la solicitud";
+    const error = new Error(fieldMessage ? `${message}: ${fieldMessage}` : message);
+    error.status = response.status;
+    error.fields = data.errors ?? {};
+    throw error;
   }
 
   return data;
@@ -59,6 +64,10 @@ export function getOrders(token) {
   return request("/orders", { token });
 }
 
+export function getOrder(token, id) {
+  return request(`/orders/${id}`, { token });
+}
+
 export function createOrder(token, payload) {
   return request("/orders", {
     token,
@@ -75,8 +84,38 @@ export function updateOrder(token, id, payload) {
   });
 }
 
+export function claimOrder(token, id) {
+  return request(`/orders/${id}/claim`, {
+    token,
+    method: "POST",
+  });
+}
+
 export function deleteOrder(token, id) {
   return request(`/orders/${id}`, { token, method: "DELETE" });
+}
+
+export function addOrderPart(token, orderId, payload) {
+  return request(`/orders/${orderId}/parts`, {
+    token,
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function removeOrderPart(token, orderId, partId) {
+  return request(`/orders/${orderId}/parts/${partId}`, {
+    token,
+    method: "DELETE",
+  });
+}
+
+export function addOrderObservation(token, orderId, detail) {
+  return request(`/orders/${orderId}/observations`, {
+    token,
+    method: "POST",
+    body: JSON.stringify({ detail }),
+  });
 }
 
 export function getClients(token) {
@@ -155,16 +194,11 @@ export function getHistory(token) {
   return request("/history", { token });
 }
 
-export async function getReports(token) {
-  const [byMonth, byStatus, byTechnician, mostUsedParts, lowStock, estimatedIncome] =
-    await Promise.all([
-      request("/reports/by-month", { token }),
-      request("/reports/by-status", { token }),
-      request("/reports/by-technician", { token }),
-      request("/reports/most-used-parts", { token }),
-      request("/reports/low-stock", { token }),
-      request("/reports/estimated-income", { token }),
-    ]);
-
-  return { byMonth, byStatus, byTechnician, mostUsedParts, lowStock, estimatedIncome };
+export function getReports(token, filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return request(`/reports/summary${query ? `?${query}` : ""}`, { token });
 }

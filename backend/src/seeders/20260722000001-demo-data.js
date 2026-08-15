@@ -47,25 +47,25 @@ module.exports = {
 
     const maria = await db.Client.create({
       name: "María López",
-      phone: "5551-2088",
+      phone: "55512088",
       email: "maria.lopez@email.com",
       type: "Individual",
     });
     const inversiones = await db.Client.create({
       name: "Inversiones Norte",
-      phone: "2220-4510",
+      phone: "22204510",
       email: "soporte@inortenet.gt",
       type: "Empresa",
     });
     const jose = await db.Client.create({
       name: "José Pérez",
-      phone: "5309-8842",
+      phone: "53098842",
       email: "josep@email.com",
       type: "Individual",
     });
     const claudia = await db.Client.create({
       name: "Claudia Ramos",
-      phone: "4015-1177",
+      phone: "40151177",
       email: "claudia.ramos@email.com",
       type: "Individual",
     });

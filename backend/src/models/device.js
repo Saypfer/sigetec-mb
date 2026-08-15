@@ -4,10 +4,9 @@ module.exports = (sequelize, DataTypes) => {
   const Device = sequelize.define(
     "Device",
     {
-      serial: { type: DataTypes.STRING, allowNull: false, unique: true },
       type: { type: DataTypes.STRING, allowNull: false },
-      brand: { type: DataTypes.STRING, allowNull: false },
-      model: { type: DataTypes.STRING, allowNull: false },
+      brand: { type: DataTypes.STRING, allowNull: true },
+      model: { type: DataTypes.STRING, allowNull: true },
       condition: { type: DataTypes.STRING, allowNull: true },
       status: {
         type: DataTypes.ENUM(...ORDER_STATUSES),

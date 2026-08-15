@@ -7,13 +7,18 @@ import {
   CalendarClock,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Cpu,
+  Download,
   FileClock,
+  FileSpreadsheet,
   FileText,
   Gauge,
   History,
   Eye,
+  EyeOff,
   Laptop,
   LayoutDashboard,
   LogIn,
@@ -34,6 +39,9 @@ import {
   X,
 } from "lucide-react";
 import {
+  addOrderObservation,
+  addOrderPart,
+  claimOrder,
   createClient,
   createDevice,
   createInventoryItem,
@@ -49,10 +57,12 @@ import {
   getDevices,
   getHistory,
   getInventory,
+  getOrder,
   getOrders,
   getReports,
   getUsers,
   loginUser,
+  removeOrderPart,
   updateClient,
   updateDevice,
   updateInventoryItem,
@@ -61,17 +71,22 @@ import {
 } from "./api";
 
 const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "inventory", label: "Inventario", icon: Boxes },
-  { id: "orders", label: "Órdenes", icon: ClipboardList },
-  { id: "clients", label: "Clientes", icon: Users },
-  { id: "devices", label: "Equipos", icon: Laptop },
-  { id: "technicians", label: "Técnicos", icon: Wrench },
-  { id: "history", label: "Historial", icon: History },
-  { id: "reports", label: "Reportes", icon: BarChart3 },
-  { id: "users", label: "Usuarios", icon: ShieldCheck },
-  { id: "settings", label: "Configuración", icon: Settings },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "tecnico"] },
+  { id: "inventory", label: "Inventario", icon: Boxes, roles: ["admin", "tecnico"] },
+  { id: "orders", label: "Órdenes", icon: ClipboardList, roles: ["admin", "tecnico"] },
+  { id: "clients", label: "Clientes", icon: Users, roles: ["admin"] },
+  { id: "devices", label: "Equipos", icon: Laptop, roles: ["admin"] },
+  { id: "technicians", label: "Técnicos", icon: Wrench, roles: ["admin"] },
+  { id: "history", label: "Historial", icon: History, roles: ["admin", "tecnico"] },
+  { id: "reports", label: "Reportes", icon: BarChart3, roles: ["admin"] },
+  { id: "users", label: "Usuarios", icon: ShieldCheck, roles: ["admin"] },
+  { id: "settings", label: "Configuración", icon: Settings, roles: ["admin"] },
 ];
+
+function canAccessModule(role, moduleId) {
+  const item = navItems.find((navItem) => navItem.id === moduleId);
+  return Boolean(item?.roles.includes(role));
+}
 
 const stats = [
   {
@@ -432,6 +447,48 @@ const moduleTitles = {
 };
 
 const SESSION_STORAGE_KEY = "sigetec_mb_session";
+const TOAST_EVENT = "sigetec:toast";
+
+function showToast(message, type = "success") {
+  window.dispatchEvent(new CustomEvent(TOAST_EVENT, { detail: { message, type } }));
+}
+
+function ToastRegion() {
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    let timeoutId;
+    function handleToast(event) {
+      clearTimeout(timeoutId);
+      setToast(event.detail);
+      timeoutId = setTimeout(() => setToast(null), 4000);
+    }
+    window.addEventListener(TOAST_EVENT, handleToast);
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener(TOAST_EVENT, handleToast);
+    };
+  }, []);
+
+  if (!toast) return null;
+  const isError = toast.type === "error";
+
+  return (
+    <div
+      className={`fixed right-4 top-4 z-[100] flex max-w-sm items-start gap-3 rounded-lg border px-4 py-3 shadow-soft ${
+        isError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      {isError ? <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />}
+      <p className="text-sm font-semibold">{toast.message}</p>
+      <button type="button" onClick={() => setToast(null)} aria-label="Cerrar mensaje" className="ml-auto">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
 
 function getStoredSession() {
   try {
@@ -472,6 +529,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f4f7fa] text-ink">
+      <ToastRegion />
       <Sidebar
         activeModule={activeModule}
         onSelect={(id) => {
@@ -490,7 +548,7 @@ function App() {
           onLogout={handleLogout}
         />
         <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <ModuleRenderer activeModule={activeModule} token={session.token} />
+          <ModuleRenderer activeModule={activeModule} token={session.token} user={session.user} />
         </main>
       </div>
     </div>
@@ -652,7 +710,7 @@ function Sidebar({ activeModule, onSelect, open, onClose, user }) {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4 scrollbar-thin">
-          {navItems.map((item) => {
+          {navItems.filter((item) => item.roles.includes(user?.role)).map((item) => {
             const Icon = item.icon;
             const selected = activeModule === item.id;
             return (
@@ -713,13 +771,6 @@ function Topbar({ title, subtitle, onMenu, onLogout }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="hidden items-center rounded border border-line bg-slate-50 px-3 py-2 md:flex">
-            <Search className="mr-2 h-4 w-4 text-slate-400" />
-            <input
-              className="w-56 bg-transparent text-sm outline-none"
-              placeholder="Buscar orden, cliente o repuesto"
-            />
-          </div>
           <IconButton label="Notificaciones">
             <Bell className="h-4 w-4" />
           </IconButton>
@@ -750,11 +801,15 @@ function IconButton({ label, children }) {
   );
 }
 
-function ModuleRenderer({ activeModule, token }) {
+function ModuleRenderer({ activeModule, token, user }) {
+  if (!canAccessModule(user?.role, activeModule)) {
+    return <AccessDenied />;
+  }
+
   const modules = {
     dashboard: <DashboardLive token={token} />,
-    inventory: <InventoryLive token={token} />,
-    orders: <OrdersLive token={token} />,
+    inventory: <InventoryLive token={token} user={user} />,
+    orders: <OrdersLive token={token} user={user} />,
     clients: <ClientsLive token={token} />,
     devices: <DevicesLive token={token} />,
     technicians: <TechniciansLive token={token} />,
@@ -765,6 +820,20 @@ function ModuleRenderer({ activeModule, token }) {
   };
 
   return modules[activeModule] ?? <DashboardLive token={token} />;
+}
+
+function AccessDenied() {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-6">
+      <div className="flex items-start gap-3">
+        <ShieldCheck className="mt-0.5 h-5 w-5 text-amber-700" />
+        <div>
+          <h2 className="font-semibold text-slate-800">Acceso restringido</h2>
+          <p className="mt-1 text-sm text-slate-600">Tu usuario no tiene permisos para abrir este módulo.</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function DashboardLive({ token }) {
@@ -821,7 +890,7 @@ function DashboardLive({ token }) {
           tone: "amber",
         },
         {
-          label: "En reparacion",
+          label: "En reparación",
           value: dashboardData.inRepairOrders,
           change: "Trabajo activo",
           icon: Wrench,
@@ -876,7 +945,7 @@ function DashboardLive({ token }) {
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_0.85fr]">
         <Panel
-          title="Ultimas ordenes registradas"
+          title="Últimas órdenes registradas"
           action={
             <button className="inline-flex items-center gap-2 rounded border border-line px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
               <SlidersHorizontal className="h-4 w-4" />
@@ -885,7 +954,7 @@ function DashboardLive({ token }) {
           }
         >
           <ResponsiveTable
-            columns={["Orden", "Cliente", "Equipo", "Tecnico", "Estado", "Costo"]}
+            columns={["Orden", "Cliente", "Equipo", "Técnico", "Estado", "Costo"]}
             rows={recentOrders.map((order) => [
               order.code,
               order.client,
@@ -912,7 +981,7 @@ function DashboardLive({ token }) {
                         <Badge label="Stock bajo" />
                       </div>
                       <p className="mt-1 text-sm text-slate-500">
-                        Existencia {item.quantity} / minimo {item.min}. Ubicacion {item.location}.
+                        Existencia {item.quantity} / mínimo {item.min}. Ubicación {item.location}.
                       </p>
                     </div>
                   </div>
@@ -941,13 +1010,17 @@ function DashboardLive({ token }) {
   );
 }
 
-function useApiData(loader, token) {
+function useApiData(loader, token, enabled = true) {
   const [data, setData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState("");
 
   const loadData = useMemo(
     () => async () => {
+      if (!enabled) {
+        setIsLoading(false);
+        return [];
+      }
       setIsLoading(true);
       setError("");
 
@@ -960,7 +1033,7 @@ function useApiData(loader, token) {
         setIsLoading(false);
       }
     },
-    [loader, token]
+    [enabled, loader, token]
   );
 
   useEffect(() => {
@@ -986,14 +1059,18 @@ function useApiData(loader, token) {
       }
     }
 
-    if (token) {
+    if (token && enabled) {
       loadInitialData();
+    } else {
+      setData(null);
+      setIsLoading(false);
+      setError("");
     }
 
     return () => {
       ignore = true;
     };
-  }, [loader, token]);
+  }, [enabled, loader, token]);
 
   return { data, isLoading, error, reload: loadData };
 }
@@ -1008,6 +1085,152 @@ function formatMoney(value) {
 function formatDate(value) {
   if (!value) return "Pendiente";
   return new Date(value).toLocaleDateString("es-GT");
+}
+
+function formatDateTime(value) {
+  if (!value) return "Sin fecha";
+  return new Date(value).toLocaleString("es-GT", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function downloadFile(content, fileName, type) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function exportReportExcel(report, filterLabels) {
+  const indicators = report.indicators ?? {};
+  const rows = [
+    ["SIGETEC-MB - Reporte operativo"],
+    ["Generado", new Date().toLocaleString("es-GT")],
+    ["Desde", filterLabels.from],
+    ["Hasta", filterLabels.to],
+    ["Técnico", filterLabels.technician],
+    ["Estado", filterLabels.status],
+    [],
+    ["INDICADORES"],
+    ["Reparaciones", indicators.totalOrders ?? 0],
+    ["Finalizadas", indicators.completedOrders ?? 0],
+    ["Ingresos estimados", indicators.estimatedIncome ?? 0],
+    ["Costo de repuestos", indicators.partsCost ?? 0],
+    ["Utilidad estimada", indicators.estimatedProfit ?? 0],
+    ["Ticket promedio", indicators.averageTicket ?? 0],
+    [],
+    ["REPARACIONES POR MES"],
+    ["Mes", "Reparaciones", "Ingresos"],
+    ...(report.byMonth ?? []).map((item) => [item.month, Number(item.total), Number(item.income)]),
+    [],
+    ["ÓRDENES POR ESTADO"],
+    ["Estado", "Cantidad"],
+    ...(report.byStatus ?? []).map((item) => [item.status, Number(item.total)]),
+    [],
+    ["REPARACIONES POR TÉCNICO"],
+    ["Técnico", "Reparaciones", "Ingresos"],
+    ...(report.byTechnician ?? []).map((item) => [item.name, Number(item.total), Number(item.income)]),
+    [],
+    ["REPUESTOS MÁS USADOS"],
+    ["Código", "Repuesto", "Unidades", "Costo"],
+    ...(report.mostUsedParts ?? []).map((item) => [item.code, item.name, Number(item.totalUsed), Number(item.totalCost)]),
+    [],
+    ["STOCK BAJO"],
+    ["Código", "Repuesto", "Existencia", "Mínimo"],
+    ...(report.lowStock ?? []).map((item) => [item.code, item.name, Number(item.quantity), Number(item.minStock)]),
+  ];
+
+  const table = rows
+    .map(
+      (row) =>
+        `<Row>${row
+          .map((cell) => `<Cell><Data ss:Type="${typeof cell === "number" ? "Number" : "String"}">${escapeXml(cell)}</Data></Cell>`)
+          .join("")}</Row>`
+    )
+    .join("");
+  const workbook = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Worksheet ss:Name="Reporte"><Table>${table}</Table></Worksheet>
+</Workbook>`;
+  downloadFile(workbook, `reporte-sigetec-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8");
+}
+
+function pdfSafeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "?")
+    .replace(/([\\()])/g, "\\$1")
+    .slice(0, 100);
+}
+
+function createReportPdf(lines) {
+  const content = ["BT", "/F1 10 Tf", "44 798 Td", "14 TL"]
+    .concat(lines.slice(0, 52).map((line) => `(${pdfSafeText(line)}) Tj T*`), "ET")
+    .join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function exportReportPdf(report, filterLabels) {
+  const indicators = report.indicators ?? {};
+  const lines = [
+    "SIGETEC-MB - REPORTE OPERATIVO",
+    `Generado: ${new Date().toLocaleString("es-GT")}`,
+    "",
+    "FILTROS",
+    `Desde: ${filterLabels.from} | Hasta: ${filterLabels.to}`,
+    `Tecnico: ${filterLabels.technician} | Estado: ${filterLabels.status}`,
+    "",
+    "INDICADORES",
+    `Reparaciones: ${indicators.totalOrders ?? 0} | Finalizadas: ${indicators.completedOrders ?? 0}`,
+    `Ingresos estimados: ${formatMoney(indicators.estimatedIncome)}`,
+    `Costo de repuestos: ${formatMoney(indicators.partsCost)}`,
+    `Utilidad estimada: ${formatMoney(indicators.estimatedProfit)}`,
+    `Ticket promedio: ${formatMoney(indicators.averageTicket)}`,
+    "",
+    "ORDENES POR ESTADO",
+    ...(report.byStatus ?? []).map((item) => `${item.status}: ${item.total}`),
+    "",
+    "REPARACIONES POR TECNICO",
+    ...(report.byTechnician ?? []).slice(0, 8).map((item) => `${item.name}: ${item.total} (${formatMoney(item.income)})`),
+    "",
+    "REPUESTOS MAS USADOS",
+    ...(report.mostUsedParts ?? []).slice(0, 8).map((item) => `${item.code} - ${item.name}: ${item.totalUsed} uds. (${formatMoney(item.totalCost)})`),
+  ];
+  downloadFile(createReportPdf(lines), `reporte-sigetec-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 function ModuleState({ isLoading, error }) {
@@ -1030,7 +1253,7 @@ function ModuleState({ isLoading, error }) {
   return null;
 }
 
-function EmptyState({ title = "Sin registros", description = "Cuando existan datos, apareceran aqui." }) {
+function EmptyState({ title = "Sin registros", description = "Cuando existan datos, aparecerán aquí." }) {
   return (
     <div className="rounded border border-dashed border-line bg-slate-50 px-4 py-8 text-center">
       <p className="text-sm font-semibold text-slate-700">{title}</p>
@@ -1039,12 +1262,17 @@ function EmptyState({ title = "Sin registros", description = "Cuando existan dat
   );
 }
 
-function Modal({ title, open, onClose, children }) {
+function Modal({ title, open, onClose, children, size = "md" }) {
   if (!open) return null;
+
+  const sizes = {
+    md: "max-w-2xl",
+    lg: "max-w-5xl",
+  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 px-4 py-6">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-line bg-white shadow-soft">
+      <div className={`max-h-[90vh] w-full ${sizes[size]} overflow-y-auto rounded-lg border border-line bg-white shadow-soft`}>
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-base font-semibold text-ink">{title}</h3>
           <button
@@ -1071,11 +1299,11 @@ function Field({ label, children }) {
   );
 }
 
-function TextInput(props) {
+function TextInput({ className = "", ...props }) {
   return (
     <input
       {...props}
-      className="mt-2 w-full rounded border border-line bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+      className={`mt-2 w-full rounded border border-line bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100 ${className}`}
     />
   );
 }
@@ -1131,12 +1359,176 @@ function FormError({ message }) {
   );
 }
 
-function LiveTable({ columns, rows, emptyTitle, emptyDescription }) {
+function getCellText(cell) {
+  if (cell === null || cell === undefined) return "";
+  if (["string", "number"].includes(typeof cell)) return String(cell);
+  if (Array.isArray(cell)) return cell.map(getCellText).join(" ");
+  if (cell?.props?.label) return String(cell.props.label);
+  if (cell?.props?.children) return getCellText(cell.props.children);
+  return "";
+}
+
+function normalizeSearchText(value) {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function LiveTable({
+  columns,
+  rows,
+  emptyTitle,
+  emptyDescription,
+  filters = [],
+  pageSize = 8,
+  searchPlaceholder = "Buscar en el listado",
+}) {
+  const [query, setQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState({});
+  const [page, setPage] = useState(1);
+
+  const filteredRows = useMemo(() => {
+    const normalizedQuery = normalizeSearchText(query.trim());
+    return rows.filter((row) => {
+      const matchesSearch =
+        !normalizedQuery ||
+        normalizeSearchText(row.map(getCellText).join(" ")).includes(normalizedQuery);
+      const matchesFilters = filters.every(({ column }) => {
+        const selected = activeFilters[column];
+        return !selected || getCellText(row[column]) === selected;
+      });
+      return matchesSearch && matchesFilters;
+    });
+  }, [activeFilters, filters, query, rows]);
+
+  useEffect(() => setPage(1), [activeFilters, query, rows.length]);
+
   if (!rows.length) {
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
 
-  return <ResponsiveTable columns={columns} rows={rows} />;
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full rounded border border-line bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+          />
+        </div>
+        {filters.map(({ label, column }) => {
+          const options = [...new Set(rows.map((row) => getCellText(row[column])).filter(Boolean))].sort();
+          return (
+            <select
+              key={`${label}-${column}`}
+              value={activeFilters[column] ?? ""}
+              onChange={(event) => setActiveFilters((current) => ({ ...current, [column]: event.target.value }))}
+              className="rounded border border-line bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+              aria-label={`Filtrar por ${label}`}
+            >
+              <option value="">{label}: todos</option>
+              {options.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          );
+        })}
+      </div>
+
+      {visibleRows.length ? (
+        <ResponsiveTable columns={columns} rows={visibleRows} />
+      ) : (
+        <EmptyState title="Sin coincidencias" description="Prueba con otra búsqueda o limpia los filtros." />
+      )}
+
+      <div className="flex flex-col gap-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <p>{filteredRows.length} de {rows.length} registros</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={currentPage === 1}
+            className="grid h-9 w-9 place-items-center rounded border border-line bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Página anterior"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="min-w-20 text-center">{currentPage} de {totalPages}</span>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+            disabled={currentPage === totalPages}
+            className="grid h-9 w-9 place-items-center rounded border border-line bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Página siguiente"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CollectionToolbar({ query, onQueryChange, placeholder, filterValue, onFilterChange, filterLabel, options }) {
+  return (
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+      <div className="relative min-w-0 flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded border border-line bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+        />
+      </div>
+      <select
+        value={filterValue}
+        onChange={(event) => onFilterChange(event.target.value)}
+        className="rounded border border-line bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+        aria-label={`Filtrar por ${filterLabel}`}
+      >
+        <option value="">{filterLabel}: todos</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function PaginationFooter({ total, visible, page, totalPages, onPageChange }) {
+  return (
+    <div className="mt-4 flex flex-col gap-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+      <p>{visible} de {total} registros</p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="grid h-9 w-9 place-items-center rounded border border-line bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Página anterior"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="min-w-20 text-center">{page} de {totalPages}</span>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          className="grid h-9 w-9 place-items-center rounded border border-line bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Página siguiente"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function CrudActions({ onView, onEdit, onDelete }) {
@@ -1155,14 +1547,39 @@ function CrudActions({ onView, onEdit, onDelete }) {
   );
 }
 
-function ActionIconButton({ label, onClick, danger = false, children }) {
+function OrderRowActions({ isAdmin, isAssigned, isAvailable, isClaiming, onView, onEdit, onDelete, onClaim }) {
+  if (isAdmin) {
+    return <CrudActions onView={onView} onEdit={onEdit} onDelete={onDelete} />;
+  }
+
+  return (
+    <div className="flex min-w-20 items-center justify-end gap-1">
+      <ActionIconButton label="Ver orden" onClick={onView}>
+        <Eye className="h-4 w-4" />
+      </ActionIconButton>
+      {isAssigned ? (
+        <ActionIconButton label="Actualizar trabajo" onClick={onEdit}>
+          <Pencil className="h-4 w-4" />
+        </ActionIconButton>
+      ) : null}
+      {isAvailable ? (
+        <ActionIconButton label="Asignarme orden" onClick={onClaim} disabled={isClaiming}>
+          <Wrench className="h-4 w-4" />
+        </ActionIconButton>
+      ) : null}
+    </div>
+  );
+}
+
+function ActionIconButton({ label, onClick, danger = false, disabled = false, children }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
-      className={`grid h-9 w-9 place-items-center rounded border transition ${
+      className={`grid h-9 w-9 place-items-center rounded border transition disabled:cursor-not-allowed disabled:opacity-50 ${
         danger
           ? "border-rose-200 text-rose-600 hover:bg-rose-50"
           : "border-line text-slate-600 hover:bg-slate-50 hover:text-brand-700"
@@ -1189,8 +1606,10 @@ function useCrudActions(token, removeItem, reload) {
       await removeItem(token, deleting.id);
       await reload();
       setDeleting(null);
+      showToast("Registro eliminado correctamente");
     } catch (error) {
       setDeleteError(error.message);
+      showToast(error.message, "error");
     } finally {
       setIsDeleting(false);
     }
@@ -1264,10 +1683,54 @@ function DetailGrid({ items }) {
   );
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function validateClientForm(form) {
+  if (form.name.trim().length < 2) return "El nombre debe tener al menos 2 caracteres";
+  if (form.email && !isValidEmail(form.email.trim())) return "Ingresa un correo válido";
+  if (form.phone && !/^\d{8}$/.test(form.phone)) return "El teléfono debe contener exactamente 8 números";
+  return "";
+}
+
+function validateInventoryForm(form) {
+  if (form.code.trim().length < 2) return "El código debe tener al menos 2 caracteres";
+  if (form.name.trim().length < 2) return "El nombre debe tener al menos 2 caracteres";
+  if (!Number.isInteger(Number(form.quantity)) || Number(form.quantity) < 0) return "La cantidad debe ser un entero igual o mayor que cero";
+  if (!Number.isInteger(Number(form.minStock)) || Number(form.minStock) < 0) return "El stock mínimo debe ser un entero igual o mayor que cero";
+  if (!Number.isFinite(Number(form.price)) || Number(form.price) < 0) return "El precio debe ser igual o mayor que cero";
+  return "";
+}
+
+function validateDeviceForm(form) {
+  if (form.type.trim().length < 2) return "Ingresa el tipo de equipo";
+  if (!form.clientId) return "Selecciona un cliente";
+  return "";
+}
+
+function validateUserForm(form, isEditing) {
+  if (form.name.trim().length < 2) return "El nombre debe tener al menos 2 caracteres";
+  if (!isValidEmail(form.email.trim())) return "Ingresa un correo válido";
+  if (form.phone && !/^\d{8}$/.test(form.phone)) return "El teléfono debe contener exactamente 8 números";
+  if ((!isEditing || form.password) && form.password.length < 8) return "La contraseña debe tener al menos 8 caracteres";
+  return "";
+}
+
+function validateOrderForm(form) {
+  if (form.code.trim().length < 3) return "Ingresa un código de orden válido";
+  if (!form.clientId) return "Selecciona un cliente";
+  if (!form.deviceId) return "Selecciona un equipo del cliente";
+  if (!form.entryDate) return "Ingresa la fecha de recepción";
+  if (form.deliveryDate && form.deliveryDate < form.entryDate) return "La entrega no puede ser anterior al ingreso";
+  if (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0) return "El costo debe ser igual o mayor que cero";
+  return "";
+}
+
 function CreateClientForm({ token, initialData = null, onSaved, onCancel }) {
   const [form, setForm] = useState({
     name: initialData?.name ?? "",
-    phone: initialData?.phone ?? "",
+    phone: String(initialData?.phone ?? "").replace(/\D/g, "").slice(0, 8),
     email: initialData?.email ?? "",
     type: initialData?.type ?? "Individual",
   });
@@ -1280,18 +1743,29 @@ function CreateClientForm({ token, initialData = null, onSaved, onCancel }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const validationError = validateClientForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setIsSubmitting(true);
     setError("");
 
     try {
-      if (initialData) {
-        await updateClient(token, initialData.id, form);
-      } else {
-        await createClient(token, form);
-      }
-      await onSaved();
+      const payload = {
+        ...form,
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim().toLowerCase(),
+      };
+      const savedClient = initialData
+        ? await updateClient(token, initialData.id, payload)
+        : await createClient(token, payload);
+      showToast(initialData ? "Cliente actualizado correctamente" : "Cliente registrado correctamente");
+      await onSaved(savedClient);
     } catch (nextError) {
       setError(nextError.message);
+      showToast(nextError.message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -1304,8 +1778,15 @@ function CreateClientForm({ token, initialData = null, onSaved, onCancel }) {
         <TextInput value={form.name} onChange={(event) => update("name", event.target.value)} required />
       </Field>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Telefono">
-          <TextInput value={form.phone} onChange={(event) => update("phone", event.target.value)} />
+        <Field label="Teléfono">
+          <TextInput
+            type="text"
+            inputMode="numeric"
+            maxLength={8}
+            value={form.phone}
+            onChange={(event) => update("phone", event.target.value.replace(/\D/g, "").slice(0, 8))}
+            placeholder="8 dígitos"
+          />
         </Field>
         <Field label="Correo">
           <TextInput type="email" value={form.email} onChange={(event) => update("email", event.target.value)} />
@@ -1341,12 +1822,21 @@ function CreateInventoryForm({ token, initialData = null, onSaved, onCancel }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const validationError = validateInventoryForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setIsSubmitting(true);
     setError("");
 
     try {
       const payload = {
         ...form,
+        code: form.code.trim().toUpperCase(),
+        name: form.name.trim(),
+        category: form.category.trim(),
+        location: form.location.trim(),
         quantity: Number(form.quantity),
         minStock: Number(form.minStock),
         price: Number(form.price),
@@ -1356,9 +1846,11 @@ function CreateInventoryForm({ token, initialData = null, onSaved, onCancel }) {
       } else {
         await createInventoryItem(token, payload);
       }
+      showToast(initialData ? "Repuesto actualizado correctamente" : "Repuesto registrado correctamente");
       await onSaved();
     } catch (nextError) {
       setError(nextError.message);
+      showToast(nextError.message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -1368,7 +1860,7 @@ function CreateInventoryForm({ token, initialData = null, onSaved, onCancel }) {
     <form className="space-y-4" onSubmit={handleSubmit}>
       <FormError message={error} />
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Codigo">
+        <Field label="Código">
           <TextInput value={form.code} onChange={(event) => update("code", event.target.value)} required />
         </Field>
         <Field label="Nombre del repuesto">
@@ -1376,10 +1868,10 @@ function CreateInventoryForm({ token, initialData = null, onSaved, onCancel }) {
         </Field>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Categoria">
+        <Field label="Categoría">
           <TextInput value={form.category} onChange={(event) => update("category", event.target.value)} />
         </Field>
-        <Field label="Ubicacion">
+        <Field label="Ubicación">
           <TextInput value={form.location} onChange={(event) => update("location", event.target.value)} />
         </Field>
       </div>
@@ -1399,15 +1891,14 @@ function CreateInventoryForm({ token, initialData = null, onSaved, onCancel }) {
   );
 }
 
-function CreateDeviceForm({ token, clients, initialData = null, onSaved, onCancel }) {
+function CreateDeviceForm({ token, clients, defaultClientId = "", initialData = null, onSaved, onCancel }) {
   const [form, setForm] = useState({
-    serial: initialData?.serial ?? "",
     type: initialData?.type ?? "",
     brand: initialData?.brand ?? "",
     model: initialData?.model ?? "",
     condition: initialData?.condition ?? "",
     status: initialData?.status ?? "Pendiente",
-    clientId: initialData?.clientId ?? clients[0]?.id ?? "",
+    clientId: initialData?.clientId ?? (defaultClientId || clients[0]?.id || ""),
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1418,19 +1909,31 @@ function CreateDeviceForm({ token, clients, initialData = null, onSaved, onCance
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const validationError = validateDeviceForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setIsSubmitting(true);
     setError("");
 
     try {
-      const payload = { ...form, clientId: Number(form.clientId) };
-      if (initialData) {
-        await updateDevice(token, initialData.id, payload);
-      } else {
-        await createDevice(token, payload);
-      }
-      await onSaved();
+      const payload = {
+        ...form,
+        type: form.type.trim(),
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        condition: form.condition.trim(),
+        clientId: Number(form.clientId),
+      };
+      const savedDevice = initialData
+        ? await updateDevice(token, initialData.id, payload)
+        : await createDevice(token, payload);
+      showToast(initialData ? "Equipo actualizado correctamente" : "Equipo registrado correctamente");
+      await onSaved(savedDevice);
     } catch (nextError) {
       setError(nextError.message);
+      showToast(nextError.message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -1453,24 +1956,21 @@ function CreateDeviceForm({ token, clients, initialData = null, onSaved, onCance
         </SelectInput>
       </Field>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Serie">
-          <TextInput value={form.serial} onChange={(event) => update("serial", event.target.value)} required />
-        </Field>
         <Field label="Tipo">
           <TextInput value={form.type} onChange={(event) => update("type", event.target.value)} required placeholder="Laptop, telefono, impresora" />
         </Field>
+        <Field label="Marca">
+          <TextInput value={form.brand} onChange={(event) => update("brand", event.target.value)} placeholder="Opcional" />
+        </Field>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Marca">
-          <TextInput value={form.brand} onChange={(event) => update("brand", event.target.value)} required />
-        </Field>
         <Field label="Modelo">
-          <TextInput value={form.model} onChange={(event) => update("model", event.target.value)} required />
+          <TextInput value={form.model} onChange={(event) => update("model", event.target.value)} placeholder="Opcional" />
+        </Field>
+        <Field label="Condición">
+          <TextInput value={form.condition} onChange={(event) => update("condition", event.target.value)} />
         </Field>
       </div>
-      <Field label="Condicion">
-        <TextInput value={form.condition} onChange={(event) => update("condition", event.target.value)} />
-      </Field>
       <Field label="Estado">
         <SelectInput value={form.status} onChange={(event) => update("status", event.target.value)}>
           {orderStatusOptions.map((status) => (
@@ -1489,12 +1989,14 @@ function CreateUserForm({ token, defaultRole = "tecnico", initialData = null, on
   const [form, setForm] = useState({
     name: initialData?.name ?? "",
     email: initialData?.email ?? "",
+    phone: String(initialData?.phone ?? "").replace(/\D/g, "").slice(0, 8),
     password: "",
     role: initialData?.role ?? defaultRole,
     status: initialData?.status ?? "Disponible",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -1502,18 +2004,30 @@ function CreateUserForm({ token, defaultRole = "tecnico", initialData = null, on
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const validationError = validateUserForm(form, Boolean(initialData));
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setIsSubmitting(true);
     setError("");
 
     try {
+      const payload = {
+        ...form,
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+      };
       if (initialData) {
-        await updateUser(token, initialData.id, form);
+        await updateUser(token, initialData.id, payload);
       } else {
-        await createUser(token, form);
+        await createUser(token, payload);
       }
+      showToast(initialData ? "Usuario actualizado correctamente" : "Usuario registrado correctamente");
       await onSaved();
     } catch (nextError) {
       setError(nextError.message);
+      showToast(nextError.message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -1529,21 +2043,45 @@ function CreateUserForm({ token, defaultRole = "tecnico", initialData = null, on
         <Field label="Correo">
           <TextInput type="email" value={form.email} onChange={(event) => update("email", event.target.value)} required />
         </Field>
-        <Field label="Contrasena">
+        <Field label="Teléfono">
           <TextInput
-            type="password"
-            value={form.password}
-            onChange={(event) => update("password", event.target.value)}
-            required={!initialData}
-            placeholder={initialData ? "Dejar vacia para conservarla" : ""}
+            type="text"
+            inputMode="numeric"
+            maxLength={8}
+            value={form.phone}
+            onChange={(event) => update("phone", event.target.value.replace(/\D/g, "").slice(0, 8))}
+            placeholder="8 dígitos"
           />
         </Field>
       </div>
+      <Field label="Contraseña">
+        <div className="relative">
+          <TextInput
+            type={!initialData && showPassword ? "text" : "password"}
+            value={form.password}
+            onChange={(event) => update("password", event.target.value)}
+            required={!initialData}
+            placeholder={initialData ? "Dejar vacía para conservarla" : "Mínimo 8 caracteres"}
+            className={!initialData ? "pr-11" : ""}
+          />
+          {!initialData ? (
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              className="absolute right-2 top-4 grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          ) : null}
+        </div>
+      </Field>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Rol">
           <SelectInput value={form.role} onChange={(event) => update("role", event.target.value)}>
             <option value="admin">Administrador</option>
-            <option value="tecnico">Tecnico</option>
+            <option value="tecnico">Técnico</option>
           </SelectInput>
         </Field>
         <Field label="Estado">
@@ -1558,7 +2096,18 @@ function CreateUserForm({ token, defaultRole = "tecnico", initialData = null, on
   );
 }
 
-function CreateOrderForm({ token, clients, devices, users, initialData = null, onSaved, onCancel }) {
+function CreateOrderForm({
+  token,
+  clients,
+  devices,
+  users,
+  inventory = [],
+  initialData = null,
+  onClientCreated,
+  onDeviceCreated,
+  onSaved,
+  onCancel,
+}) {
   const techniciansList = users.filter((user) => user.role === "tecnico");
   const initialClientId = initialData?.clientId ?? devices[0]?.clientId ?? clients[0]?.id ?? "";
   const initialDeviceId =
@@ -1580,16 +2129,38 @@ function CreateOrderForm({ token, clients, devices, users, initialData = null, o
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const compatibleDevices = devices.filter(
+  const [availableClients, setAvailableClients] = useState(clients);
+  const [availableDevices, setAvailableDevices] = useState(devices);
+  const [clientModalOpen, setClientModalOpen] = useState(false);
+  const [deviceModalOpen, setDeviceModalOpen] = useState(false);
+  const [selectedParts, setSelectedParts] = useState([]);
+  const firstStockItem = inventory.find((item) => Number(item.quantity) > 0);
+  const [partDraft, setPartDraft] = useState({
+    inventoryItemId: firstStockItem?.id ?? "",
+    quantityUsed: 1,
+  });
+  const compatibleDevices = availableDevices.filter(
     (device) => Number(device.clientId) === Number(form.clientId)
   );
+  const selectedPartsCost = selectedParts.reduce((total, part) => {
+    const item = inventory.find((inventoryItem) => Number(inventoryItem.id) === Number(part.inventoryItemId));
+    return total + Number(item?.price ?? 0) * Number(part.quantityUsed);
+  }, 0);
+
+  useEffect(() => setAvailableClients(clients), [clients]);
+  useEffect(() => setAvailableDevices(devices), [devices]);
+  useEffect(() => {
+    if (!partDraft.inventoryItemId && firstStockItem) {
+      setPartDraft((current) => ({ ...current, inventoryItemId: firstStockItem.id }));
+    }
+  }, [firstStockItem, partDraft.inventoryItemId]);
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
   function updateClient(value) {
-    const nextDevice = devices.find((device) => Number(device.clientId) === Number(value));
+    const nextDevice = availableDevices.find((device) => Number(device.clientId) === Number(value));
     setForm((current) => ({
       ...current,
       clientId: value,
@@ -1597,107 +2168,319 @@ function CreateOrderForm({ token, clients, devices, users, initialData = null, o
     }));
   }
 
+  function addSelectedPart() {
+    const inventoryItemId = Number(partDraft.inventoryItemId);
+    const quantityUsed = Number(partDraft.quantityUsed);
+    const item = inventory.find((inventoryItem) => Number(inventoryItem.id) === inventoryItemId);
+    if (!item) {
+      setError("Selecciona un repuesto disponible");
+      return;
+    }
+    if (!Number.isInteger(quantityUsed) || quantityUsed < 1) {
+      setError("La cantidad del repuesto debe ser un entero mayor que cero");
+      return;
+    }
+    const existingQuantity = selectedParts.find((part) => part.inventoryItemId === inventoryItemId)?.quantityUsed ?? 0;
+    if (existingQuantity + quantityUsed > Number(item.quantity)) {
+      setError(`Solo hay ${item.quantity} unidades disponibles de ${item.name}`);
+      return;
+    }
+    setSelectedParts((current) => {
+      const existing = current.find((part) => part.inventoryItemId === inventoryItemId);
+      if (!existing) return [...current, { inventoryItemId, quantityUsed }];
+      return current.map((part) =>
+        part.inventoryItemId === inventoryItemId
+          ? { ...part, quantityUsed: part.quantityUsed + quantityUsed }
+          : part
+      );
+    });
+    setPartDraft((current) => ({ ...current, quantityUsed: 1 }));
+    setError("");
+  }
+
+  async function handleClientSaved(client) {
+    setAvailableClients((current) => [...current.filter((item) => item.id !== client.id), client]);
+    setForm((current) => ({ ...current, clientId: client.id, deviceId: "" }));
+    setClientModalOpen(false);
+    await onClientCreated?.();
+  }
+
+  async function handleDeviceSaved(device) {
+    setAvailableDevices((current) => [...current.filter((item) => item.id !== device.id), device]);
+    setForm((current) => ({ ...current, clientId: device.clientId, deviceId: device.id }));
+    setDeviceModalOpen(false);
+    await onDeviceCreated?.();
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
+    const validationError = validateOrderForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setIsSubmitting(true);
     setError("");
 
     try {
       const payload = {
         ...form,
+        code: form.code.trim().toUpperCase(),
+        issue: form.issue.trim(),
+        diagnosis: form.diagnosis.trim(),
+        notes: form.notes.trim(),
         clientId: Number(form.clientId),
         deviceId: Number(form.deviceId),
         technicianId: form.technicianId ? Number(form.technicianId) : null,
         deliveryDate: form.deliveryDate || null,
         cost: Number(form.cost),
+        ...(!initialData ? { partsUsed: selectedParts } : {}),
       };
       if (initialData) {
         await updateOrder(token, initialData.id, payload);
       } else {
         await createOrder(token, payload);
       }
+      showToast(initialData ? "Orden actualizada correctamente" : "Orden registrada correctamente");
       await onSaved();
     } catch (nextError) {
       setError(nextError.message);
+      showToast(nextError.message, "error");
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  if (!clients.length || !devices.length) {
-    return (
-      <EmptyState
-        title="Faltan datos base"
-        description="Para crear una orden necesitas al menos un cliente y un equipo registrados."
-      />
-    );
+  return (
+    <>
+      <form className="space-y-5" onSubmit={handleSubmit}>
+        <FormError message={error} />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Código de orden">
+            <TextInput value={form.code} onChange={(event) => update("code", event.target.value)} required />
+          </Field>
+          <Field label="Estado">
+            <SelectInput value={form.status} onChange={(event) => update("status", event.target.value)}>
+              {orderStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+            </SelectInput>
+          </Field>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-700">Cliente</span>
+              <button
+                type="button"
+                onClick={() => setClientModalOpen(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800"
+              >
+                <Plus className="h-4 w-4" />
+                Nuevo cliente
+              </button>
+            </div>
+            <SelectInput value={form.clientId} onChange={(event) => updateClient(event.target.value)} required>
+              <option value="">Selecciona un cliente</option>
+              {availableClients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+            </SelectInput>
+          </div>
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-700">Equipo</span>
+              <button
+                type="button"
+                disabled={!form.clientId}
+                onClick={() => setDeviceModalOpen(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800 disabled:cursor-not-allowed disabled:text-slate-400"
+              >
+                <Plus className="h-4 w-4" />
+                Nuevo equipo
+              </button>
+            </div>
+            <SelectInput value={form.deviceId} onChange={(event) => update("deviceId", event.target.value)} required>
+              <option value="">Selecciona un equipo</option>
+              {compatibleDevices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {[device.type, device.brand, device.model].filter(Boolean).join(" - ")}
+                </option>
+              ))}
+            </SelectInput>
+          </div>
+        </div>
+        <Field label="Técnico asignado">
+          <SelectInput value={form.technicianId} onChange={(event) => update("technicianId", event.target.value)}>
+            <option value="">Sin asignar</option>
+            {techniciansList.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+          </SelectInput>
+        </Field>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Falla reportada">
+            <TextAreaInput value={form.issue} onChange={(event) => update("issue", event.target.value)} />
+          </Field>
+          <Field label="Diagnóstico">
+            <TextAreaInput value={form.diagnosis} onChange={(event) => update("diagnosis", event.target.value)} />
+          </Field>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field label="Ingreso">
+            <TextInput type="date" value={form.entryDate} onChange={(event) => update("entryDate", event.target.value)} required />
+          </Field>
+          <Field label="Entrega">
+            <TextInput type="date" value={form.deliveryDate} onChange={(event) => update("deliveryDate", event.target.value)} />
+          </Field>
+          <Field label="Costo">
+            <TextInput type="number" min="0" step="0.01" value={form.cost} onChange={(event) => update("cost", event.target.value)} />
+          </Field>
+        </div>
+        {!initialData ? (
+          <section className="border-t border-line pt-5">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-ink">Repuestos utilizados</h4>
+              <span className="text-sm font-semibold text-slate-600">{formatMoney(selectedPartsCost)}</span>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_auto] sm:items-end">
+              <Field label="Repuesto">
+                <SelectInput
+                  value={partDraft.inventoryItemId}
+                  onChange={(event) => setPartDraft((current) => ({ ...current, inventoryItemId: event.target.value }))}
+                >
+                  <option value="">Selecciona un repuesto</option>
+                  {inventory.filter((item) => Number(item.quantity) > 0).map((item) => (
+                    <option key={item.id} value={item.id}>{item.code} - {item.name} ({item.quantity})</option>
+                  ))}
+                </SelectInput>
+              </Field>
+              <Field label="Cantidad">
+                <TextInput
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={partDraft.quantityUsed}
+                  onChange={(event) => setPartDraft((current) => ({ ...current, quantityUsed: event.target.value }))}
+                />
+              </Field>
+              <button
+                type="button"
+                onClick={addSelectedPart}
+                className="inline-flex h-[42px] items-center justify-center gap-2 rounded border border-brand-200 bg-brand-50 px-4 text-sm font-semibold text-brand-700 hover:bg-brand-100"
+              >
+                <Plus className="h-4 w-4" />
+                Agregar
+              </button>
+            </div>
+            {selectedParts.length ? (
+              <div className="mt-4 divide-y divide-line rounded border border-line">
+                {selectedParts.map((part) => {
+                  const item = inventory.find((inventoryItem) => Number(inventoryItem.id) === Number(part.inventoryItemId));
+                  return (
+                    <div key={part.inventoryItemId} className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-700">{item?.name ?? "Repuesto"}</p>
+                        <p className="text-xs text-slate-500">{item?.code} · {part.quantityUsed} unidad(es) · {formatMoney(Number(item?.price ?? 0) * part.quantityUsed)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedParts((current) => current.filter((selected) => selected.inventoryItemId !== part.inventoryItemId))}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded text-rose-600 hover:bg-rose-50"
+                        aria-label="Quitar repuesto"
+                        title="Quitar repuesto"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+        <Field label="Observaciones">
+          <TextAreaInput value={form.notes} onChange={(event) => update("notes", event.target.value)} />
+        </Field>
+        <FormActions isSubmitting={isSubmitting} onCancel={onCancel} />
+      </form>
+      <Modal title="Nuevo cliente" open={clientModalOpen} onClose={() => setClientModalOpen(false)}>
+        <CreateClientForm token={token} onCancel={() => setClientModalOpen(false)} onSaved={handleClientSaved} />
+      </Modal>
+      <Modal title="Nuevo equipo" open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)}>
+        <CreateDeviceForm
+          token={token}
+          clients={availableClients}
+          defaultClientId={form.clientId}
+          onCancel={() => setDeviceModalOpen(false)}
+          onSaved={handleDeviceSaved}
+        />
+      </Modal>
+    </>
+  );
+}
+
+function TechnicianOrderForm({ token, initialData, onSaved, onCancel }) {
+  const [form, setForm] = useState({
+    status: initialData.status,
+    diagnosis: initialData.diagnosis ?? "",
+    deliveryDate: initialData.deliveryDate ?? "",
+    cost: initialData.cost ?? 0,
+    notes: initialData.notes ?? "",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (form.deliveryDate && form.deliveryDate < initialData.entryDate) {
+      setError("La entrega no puede ser anterior al ingreso");
+      return;
+    }
+    if (!Number.isFinite(Number(form.cost)) || Number(form.cost) < 0) {
+      setError("El costo debe ser igual o mayor que cero");
+      return;
+    }
+    setIsSubmitting(true);
+    setError("");
+    try {
+      await updateOrder(token, initialData.id, {
+        ...form,
+        diagnosis: form.diagnosis.trim(),
+        notes: form.notes.trim(),
+        deliveryDate: form.deliveryDate || null,
+        cost: Number(form.cost),
+      });
+      showToast("Trabajo actualizado correctamente");
+      await onSaved();
+    } catch (nextError) {
+      setError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <FormError message={error} />
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Codigo de orden">
-          <TextInput value={form.code} onChange={(event) => update("code", event.target.value)} required />
-        </Field>
-        <Field label="Estado">
-          <SelectInput value={form.status} onChange={(event) => update("status", event.target.value)}>
-            {orderStatusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </SelectInput>
-        </Field>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Cliente">
-          <SelectInput value={form.clientId} onChange={(event) => updateClient(event.target.value)} required>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </SelectInput>
-        </Field>
-        <Field label="Equipo">
-          <SelectInput value={form.deviceId} onChange={(event) => update("deviceId", event.target.value)} required>
-            {compatibleDevices.map((device) => (
-              <option key={device.id} value={device.id}>
-                {[device.brand, device.model, device.serial].filter(Boolean).join(" - ")}
-              </option>
-            ))}
-          </SelectInput>
-        </Field>
-      </div>
-      <Field label="Tecnico asignado">
-        <SelectInput value={form.technicianId} onChange={(event) => update("technicianId", event.target.value)}>
-          <option value="">Sin asignar</option>
-          {techniciansList.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
+      <Field label="Estado">
+        <SelectInput value={form.status} onChange={(event) => update("status", event.target.value)}>
+          {orderStatusOptions.map((status) => (
+            <option key={status} value={status}>{status}</option>
           ))}
         </SelectInput>
       </Field>
-      <Field label="Falla reportada">
-        <TextAreaInput value={form.issue} onChange={(event) => update("issue", event.target.value)} />
-      </Field>
-      <Field label="Diagnostico">
+      <Field label="Diagnóstico">
         <TextAreaInput value={form.diagnosis} onChange={(event) => update("diagnosis", event.target.value)} />
       </Field>
-      <div className="grid gap-4 md:grid-cols-3">
-        <Field label="Ingreso">
-          <TextInput type="date" value={form.entryDate} onChange={(event) => update("entryDate", event.target.value)} required />
-        </Field>
-        <Field label="Entrega">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Fecha de entrega">
           <TextInput type="date" value={form.deliveryDate} onChange={(event) => update("deliveryDate", event.target.value)} />
         </Field>
         <Field label="Costo">
           <TextInput type="number" min="0" step="0.01" value={form.cost} onChange={(event) => update("cost", event.target.value)} />
         </Field>
       </div>
-      <Field label="Observaciones">
+      <Field label="Notas técnicas">
         <TextAreaInput value={form.notes} onChange={(event) => update("notes", event.target.value)} />
       </Field>
       <FormActions isSubmitting={isSubmitting} onCancel={onCancel} />
@@ -1705,17 +2488,394 @@ function CreateOrderForm({ token, clients, devices, users, initialData = null, o
   );
 }
 
-function InventoryLive({ token }) {
+function OrderWorkspace({ token, order, inventory, users, user, onEdit, onChanged }) {
+  const [activeTab, setActiveTab] = useState("summary");
+  const [status, setStatus] = useState(order.status);
+  const [technicianId, setTechnicianId] = useState(order.technicianId ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const techniciansList = users.filter((candidate) => candidate.role === "tecnico");
+  const isAdmin = user?.role === "admin";
+  const isAssignedToMe = Number(order.technicianId) === Number(user?.id);
+  const canWork = isAdmin || isAssignedToMe;
+
+  async function saveAssignment() {
+    setIsSaving(true);
+    setError("");
+    try {
+      const payload = isAdmin
+        ? { status, technicianId: technicianId ? Number(technicianId) : null }
+        : { status };
+      await updateOrder(token, order.id, payload);
+      await onChanged();
+      showToast("Orden actualizada correctamente");
+    } catch (nextError) {
+      setError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleClaim() {
+    setIsSaving(true);
+    setError("");
+    try {
+      await claimOrder(token, order.id);
+      await onChanged();
+      showToast("La orden fue asignada a tu usuario");
+    } catch (nextError) {
+      setError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const tabs = [
+    ["summary", "Resumen"],
+    ["parts", `Repuestos (${order.partsUsed?.length ?? 0})`],
+    ["history", `Historial (${order.history?.length ?? 0})`],
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 border-b border-line pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-xl font-semibold text-ink">{order.code}</p>
+            <Badge label={order.status} />
+          </div>
+          <p className="mt-2 text-sm text-slate-500">
+            {order.client?.name ?? "Sin cliente"} · {order.device?.brand} {order.device?.model}
+          </p>
+        </div>
+        {canWork ? (
+          <div className={`grid gap-3 ${isAdmin ? "sm:grid-cols-[minmax(170px,1fr)_minmax(170px,1fr)_auto]" : "sm:grid-cols-[minmax(190px,1fr)_auto]"}`}>
+            <SelectInput value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Estado de la orden">
+              {orderStatusOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </SelectInput>
+            {isAdmin ? (
+              <SelectInput
+                value={technicianId}
+                onChange={(event) => setTechnicianId(event.target.value)}
+                aria-label="Técnico asignado"
+              >
+                <option value="">Sin asignar</option>
+                {techniciansList.map((technician) => (
+                  <option key={technician.id} value={technician.id}>{technician.name}</option>
+                ))}
+              </SelectInput>
+            ) : null}
+            <button
+              type="button"
+              onClick={saveAssignment}
+              disabled={isSaving}
+              className="mt-2 rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-slate-400"
+            >
+              {isSaving ? "Actualizando..." : "Actualizar"}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleClaim}
+            disabled={isSaving}
+            className="inline-flex items-center justify-center gap-2 rounded bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:bg-slate-400"
+          >
+            <Wrench className="h-4 w-4" />
+            {isSaving ? "Asignando..." : "Asignarme esta orden"}
+          </button>
+        )}
+      </div>
+
+      <FormError message={error} />
+
+      <div className="inline-flex max-w-full overflow-x-auto rounded border border-line bg-slate-50 p-1">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className={`whitespace-nowrap rounded px-4 py-2 text-sm font-semibold transition ${
+              activeTab === id ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "summary" && (
+        <OrderSummary
+          order={order}
+          onEdit={onEdit}
+          canEdit={canWork}
+          editLabel={isAdmin ? "Editar datos completos" : "Actualizar trabajo"}
+        />
+      )}
+      {activeTab === "parts" && (
+        <OrderParts token={token} order={order} inventory={inventory} onChanged={onChanged} canEdit={canWork} />
+      )}
+      {activeTab === "history" && (
+        <OrderHistory token={token} order={order} onChanged={onChanged} canAdd={canWork} />
+      )}
+    </div>
+  );
+}
+
+function OrderSummary({ order, onEdit, canEdit, editLabel }) {
+  return (
+    <div className="space-y-5">
+      {canEdit ? <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-flex items-center gap-2 rounded border border-line px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <Pencil className="h-4 w-4" />
+          {editLabel}
+        </button>
+      </div> : null}
+      <DetailGrid
+        items={[
+          { label: "Cliente", value: order.client?.name },
+          {
+            label: "Equipo",
+            value: [order.device?.type, order.device?.brand, order.device?.model].filter(Boolean).join(" - "),
+          },
+          { label: "Técnico", value: order.technician?.name ?? "Sin asignar" },
+          { label: "Costo", value: formatMoney(order.cost) },
+          { label: "Ingreso", value: formatDate(order.entryDate) },
+          { label: "Entrega", value: formatDate(order.deliveryDate) },
+          { label: "Falla reportada", value: order.issue, wide: true },
+          { label: "Diagnóstico", value: order.diagnosis, wide: true },
+          { label: "Notas", value: order.notes, wide: true },
+        ]}
+      />
+    </div>
+  );
+}
+
+function OrderParts({ token, order, inventory, onChanged, canEdit }) {
+  const availableItems = inventory.filter((item) => Number(item.quantity) > 0);
+  const [inventoryItemId, setInventoryItemId] = useState(availableItems[0]?.id ?? "");
+  const [quantityUsed, setQuantityUsed] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [removingId, setRemovingId] = useState(null);
+  const [error, setError] = useState("");
+  const selectedItem = inventory.find((item) => Number(item.id) === Number(inventoryItemId));
+  const partsTotal = (order.partsUsed ?? []).reduce(
+    (total, part) => total + Number(part.inventoryItem?.price ?? 0) * Number(part.quantityUsed ?? 0),
+    0
+  );
+
+  useEffect(() => {
+    if (!availableItems.some((item) => Number(item.id) === Number(inventoryItemId))) {
+      setInventoryItemId(availableItems[0]?.id ?? "");
+    }
+  }, [inventory, inventoryItemId]);
+
+  async function handleAdd(event) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setError("");
+    try {
+      await addOrderPart(token, order.id, {
+        inventoryItemId: Number(inventoryItemId),
+        quantityUsed: Number(quantityUsed),
+      });
+      setQuantityUsed(1);
+      await onChanged();
+      showToast("Repuesto asignado correctamente");
+    } catch (nextError) {
+      setError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleRemove(partId) {
+    setRemovingId(partId);
+    setError("");
+    try {
+      await removeOrderPart(token, order.id, partId);
+      await onChanged();
+      showToast("Repuesto devuelto al inventario");
+    } catch (nextError) {
+      setError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  return (
+    <div className={canEdit ? "grid gap-6 lg:grid-cols-[1.35fr_0.8fr]" : ""}>
+      <div>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h4 className="font-semibold text-ink">Repuestos utilizados</h4>
+          <span className="text-sm font-semibold text-slate-600">{formatMoney(partsTotal)}</span>
+        </div>
+        {order.partsUsed?.length ? (
+          <div className="divide-y divide-line border-y border-line">
+            {order.partsUsed.map((part) => (
+              <div key={part.id} className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{part.inventoryItem?.name ?? "Repuesto"}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {part.inventoryItem?.code} · {part.quantityUsed} unidad(es) · {formatMoney(part.inventoryItem?.price)} c/u
+                  </p>
+                </div>
+                {canEdit ? (
+                  <ActionIconButton
+                    label="Retirar repuesto"
+                    danger
+                    disabled={Boolean(removingId)}
+                    onClick={() => handleRemove(part.id)}
+                  >
+                    {removingId === part.id ? (
+                      <span className="text-xs">...</span>
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </ActionIconButton>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="Sin repuestos asignados" description="Agrega los componentes utilizados en la reparación." />
+        )}
+      </div>
+
+      {canEdit ? <form className="space-y-4 border-l-0 border-line lg:border-l lg:pl-6" onSubmit={handleAdd}>
+        <h4 className="font-semibold text-ink">Asignar repuesto</h4>
+        <FormError message={error} />
+        {availableItems.length ? (
+          <>
+            <Field label="Repuesto">
+              <SelectInput value={inventoryItemId} onChange={(event) => setInventoryItemId(event.target.value)} required>
+                {availableItems.map((item) => (
+                  <option key={item.id} value={item.id}>{item.code} - {item.name}</option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field label={`Cantidad disponible: ${selectedItem?.quantity ?? 0}`}>
+              <TextInput
+                type="number"
+                min="1"
+                max={selectedItem?.quantity ?? 1}
+                value={quantityUsed}
+                onChange={(event) => setQuantityUsed(event.target.value)}
+                required
+              />
+            </Field>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-slate-400"
+            >
+              {isSubmitting ? "Asignando..." : "Asignar al trabajo"}
+            </button>
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">No hay repuestos con existencias disponibles.</p>
+        )}
+      </form> : null}
+    </div>
+  );
+}
+
+function OrderHistory({ token, order, onChanged, canAdd }) {
+  const [detail, setDetail] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setError("");
+    try {
+      await addOrderObservation(token, order.id, detail);
+      setDetail("");
+      await onChanged();
+      showToast("Observación agregada al historial");
+    } catch (nextError) {
+      setError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div className={canAdd ? "grid gap-6 lg:grid-cols-[1.25fr_0.8fr]" : ""}>
+      <div>
+        <h4 className="mb-4 font-semibold text-ink">Linea de tiempo</h4>
+        {order.history?.length ? (
+          <div className="space-y-0">
+            {order.history.map((event, index) => (
+              <div key={event.id} className="relative flex gap-4 pb-5">
+                {index < order.history.length - 1 && (
+                  <span className="absolute left-[17px] top-9 h-[calc(100%-1.5rem)] w-px bg-line" />
+                )}
+                <div className="relative z-10 grid h-9 w-9 shrink-0 place-items-center rounded bg-brand-50 text-brand-700">
+                  <History className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-sm font-semibold text-slate-800">{event.event}</p>
+                  <p className="mt-1 text-sm text-slate-600">{event.detail ?? "-"}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {event.author?.name ?? "Sistema"} · {formatDateTime(event.createdAt)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="Sin eventos" description="Los cambios de esta orden aparecerán aquí." />
+        )}
+      </div>
+
+      {canAdd ? <form className="space-y-4 border-l-0 border-line lg:border-l lg:pl-6" onSubmit={handleSubmit}>
+        <h4 className="font-semibold text-ink">Nueva observación técnica</h4>
+        <FormError message={error} />
+        <Field label="Detalle">
+          <TextAreaInput
+            value={detail}
+            onChange={(event) => setDetail(event.target.value)}
+            placeholder="Registra hallazgos, pruebas realizadas o acuerdos con el cliente"
+            required
+          />
+        </Field>
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-slate-400"
+        >
+          {isSubmitting ? "Registrando..." : "Agregar al historial"}
+        </button>
+      </form> : null}
+    </div>
+  );
+}
+
+function InventoryLive({ token, user }) {
   const { data = [], isLoading, error, reload } = useApiData(getInventory, token);
   const [modalOpen, setModalOpen] = useState(false);
   const crud = useCrudActions(token, deleteInventoryItem, reload);
+  const isAdmin = user?.role === "admin";
   const items = data ?? [];
   const lowStockCount = items.filter((item) => item.status === "Stock bajo").length;
   const totalValue = items.reduce((total, item) => total + Number(item.price ?? 0) * Number(item.quantity ?? 0), 0);
 
   return (
     <SectionShell
-      buttonLabel="Nuevo repuesto"
+      buttonLabel={isAdmin ? "Nuevo repuesto" : null}
       icon={Plus}
       onAction={() => setModalOpen(true)}
       summary={[
@@ -1727,7 +2887,17 @@ function InventoryLive({ token }) {
       <ModuleState isLoading={isLoading} error={error} />
       <Panel title="Listado de repuestos">
         <LiveTable
-          columns={["Codigo", "Nombre", "Categoria", "Cantidad", "Stock minimo", "Precio", "Ubicacion", "Estado", "Acciones"]}
+          columns={[
+            "Código",
+            "Nombre",
+            "Categoría",
+            "Cantidad",
+            "Stock minimo",
+            "Precio",
+            "Ubicación",
+            "Estado",
+            ...(isAdmin ? ["Acciones"] : []),
+          ]}
           rows={items.map((item) => [
             item.code,
             item.name,
@@ -1737,15 +2907,21 @@ function InventoryLive({ token }) {
             formatMoney(item.price),
             item.location ?? "-",
             <Badge key={item.id ?? item.code} label={item.status} />,
-            <CrudActions
-              key={`actions-${item.id}`}
-              onView={() => crud.setViewing(item)}
-              onEdit={() => crud.setEditing(item)}
-              onDelete={() => crud.requestDelete(item)}
-            />,
+            ...(isAdmin
+              ? [
+                  <CrudActions
+                    key={`actions-${item.id}`}
+                    onView={() => crud.setViewing(item)}
+                    onEdit={() => crud.setEditing(item)}
+                    onDelete={() => crud.requestDelete(item)}
+                  />,
+                ]
+              : []),
           ])}
           emptyTitle="Inventario sin repuestos"
-          emptyDescription="Aun no hay repuestos registrados en la base de datos."
+          emptyDescription="Aún no hay repuestos registrados en la base de datos."
+          searchPlaceholder="Buscar por código, repuesto o ubicación"
+          filters={[{ label: "Categoría", column: 2 }, { label: "Estado", column: 7 }]}
         />
       </Panel>
       <Modal title="Nuevo repuesto" open={modalOpen} onClose={() => setModalOpen(false)}>
@@ -1762,10 +2938,10 @@ function InventoryLive({ token }) {
         {crud.viewing && (
           <DetailGrid
             items={[
-              { label: "Codigo", value: crud.viewing.code },
+              { label: "Código", value: crud.viewing.code },
               { label: "Nombre", value: crud.viewing.name },
-              { label: "Categoria", value: crud.viewing.category },
-              { label: "Ubicacion", value: crud.viewing.location },
+              { label: "Categoría", value: crud.viewing.category },
+              { label: "Ubicación", value: crud.viewing.location },
               { label: "Cantidad", value: crud.viewing.quantity },
               { label: "Stock minimo", value: crud.viewing.minStock },
               { label: "Precio", value: formatMoney(crud.viewing.price) },
@@ -1799,42 +2975,83 @@ function InventoryLive({ token }) {
   );
 }
 
-function OrdersLive({ token }) {
+function OrdersLive({ token, user }) {
+  const isAdmin = user?.role === "admin";
   const { data = [], isLoading, error, reload } = useApiData(getOrders, token);
-  const { data: clientsData = [] } = useApiData(getClients, token);
-  const { data: devicesData = [] } = useApiData(getDevices, token);
-  const { data: usersData = [] } = useApiData(getUsers, token);
+  const { data: clientsData = [], reload: reloadClients } = useApiData(getClients, token, isAdmin);
+  const { data: devicesData = [], reload: reloadDevices } = useApiData(getDevices, token, isAdmin);
+  const { data: usersData = [] } = useApiData(getUsers, token, isAdmin);
+  const { data: inventoryData = [], reload: reloadInventory } = useApiData(getInventory, token);
   const [modalOpen, setModalOpen] = useState(false);
+  const [claimingId, setClaimingId] = useState(null);
+  const [actionError, setActionError] = useState("");
   const crud = useCrudActions(token, deleteOrder, reload);
   const items = data ?? [];
   const clientsList = clientsData ?? [];
   const devicesList = devicesData ?? [];
   const usersList = usersData ?? [];
+  const inventoryList = inventoryData ?? [];
   const pending = items.filter((order) => order.status === "Pendiente").length;
-  const inRepair = items.filter((order) => order.status === "En reparacion" || order.status === "En reparación").length;
+  const inRepair = items.filter((order) => order.status === orderStatusOptions[2]).length;
   const finished = items.filter((order) => ["Finalizado", "Entregado"].includes(order.status)).length;
+  const assignedToMe = items.filter((order) => Number(order.technicianId) === Number(user?.id)).length;
+  const available = items.filter((order) => order.technicianId === null).length;
+
+  async function openWorkspace(order) {
+    crud.setViewing(order);
+    try {
+      const updated = await getOrder(token, order.id);
+      crud.setViewing(updated);
+    } catch {
+      // Keep the list data visible if the detail refresh fails.
+    }
+  }
+
+  async function refreshWorkspace() {
+    if (!crud.viewing) return;
+    const [updated] = await Promise.all([
+      getOrder(token, crud.viewing.id),
+      reload(),
+      reloadInventory(),
+    ]);
+    crud.setViewing(updated);
+  }
+
+  async function handleClaim(order) {
+    setClaimingId(order.id);
+    setActionError("");
+    try {
+      await claimOrder(token, order.id);
+      await reload();
+      showToast("La orden fue asignada a tu usuario");
+    } catch (nextError) {
+      setActionError(nextError.message);
+      showToast(nextError.message, "error");
+    } finally {
+      setClaimingId(null);
+    }
+  }
 
   return (
     <SectionShell
-      buttonLabel="Nueva orden"
+      buttonLabel={isAdmin ? "Nueva orden" : null}
       icon={Plus}
       onAction={() => setModalOpen(true)}
-      summary={[
-        ["Pendientes", pending],
-        ["En reparacion", inRepair],
-        ["Finalizadas", finished],
-      ]}
+      summary={isAdmin
+        ? [["Pendientes", pending], ["En reparación", inRepair], ["Finalizadas", finished]]
+        : [["Mis órdenes", assignedToMe], ["Disponibles", available], ["En reparación", inRepair]]}
     >
       <ModuleState isLoading={isLoading} error={error} />
+      <FormError message={actionError} />
       <Panel title="Ordenes activas">
         <LiveTable
           columns={[
-            "Codigo",
+            "Código",
             "Cliente",
             "Equipo",
             "Falla reportada",
-            "Diagnostico",
-            "Tecnico",
+            "Diagnóstico",
+            "Técnico",
             "Repuestos",
             "Estado",
             "Ingreso",
@@ -1858,77 +3075,90 @@ function OrdersLive({ token }) {
             formatDate(order.deliveryDate),
             formatMoney(order.cost),
             order.notes ?? "-",
-            <CrudActions
+            <OrderRowActions
               key={`actions-${order.id}`}
-              onView={() => crud.setViewing(order)}
+              isAdmin={isAdmin}
+              isAssigned={Number(order.technicianId) === Number(user?.id)}
+              isAvailable={order.technicianId === null}
+              isClaiming={claimingId === order.id}
+              onView={() => openWorkspace(order)}
               onEdit={() => crud.setEditing(order)}
               onDelete={() => crud.requestDelete(order)}
+              onClaim={() => handleClaim(order)}
             />,
           ])}
-          emptyTitle="Sin ordenes de reparacion"
-          emptyDescription="Cuando se registre la primera orden, aparecera en esta tabla."
+          emptyTitle="Sin órdenes de reparación"
+          emptyDescription="Cuando se registre la primera orden, aparecerá en esta tabla."
+          searchPlaceholder="Buscar por orden, cliente, equipo o técnico"
+          filters={[{ label: "Técnico", column: 5 }, { label: "Estado", column: 7 }]}
         />
       </Panel>
-      <Modal title="Nueva orden de reparacion" open={modalOpen} onClose={() => setModalOpen(false)}>
+      <Modal title="Nueva orden de reparación" open={modalOpen} onClose={() => setModalOpen(false)} size="lg">
         <CreateOrderForm
           token={token}
           clients={clientsList}
           devices={devicesList}
           users={usersList}
+          inventory={inventoryList}
+          onClientCreated={reloadClients}
+          onDeviceCreated={reloadDevices}
           onCancel={() => setModalOpen(false)}
           onSaved={async () => {
-            await reload();
+            await Promise.all([reload(), reloadInventory()]);
             setModalOpen(false);
           }}
         />
       </Modal>
-      <Modal title="Detalle de la orden" open={Boolean(crud.viewing)} onClose={() => crud.setViewing(null)}>
+      <Modal
+        title="Gestión de la orden"
+        open={Boolean(crud.viewing)}
+        onClose={() => crud.setViewing(null)}
+        size="lg"
+      >
         {crud.viewing && (
-          <DetailGrid
-            items={[
-              { label: "Codigo", value: crud.viewing.code },
-              { label: "Estado", value: <Badge label={crud.viewing.status} /> },
-              { label: "Cliente", value: crud.viewing.client?.name },
-              {
-                label: "Equipo",
-                value: [crud.viewing.device?.brand, crud.viewing.device?.model, crud.viewing.device?.serial]
-                  .filter(Boolean)
-                  .join(" - "),
-              },
-              { label: "Tecnico", value: crud.viewing.technician?.name ?? "Sin asignar" },
-              { label: "Costo", value: formatMoney(crud.viewing.cost) },
-              { label: "Ingreso", value: formatDate(crud.viewing.entryDate) },
-              { label: "Entrega", value: formatDate(crud.viewing.deliveryDate) },
-              { label: "Falla reportada", value: crud.viewing.issue, wide: true },
-              { label: "Diagnostico", value: crud.viewing.diagnosis, wide: true },
-              {
-                label: "Repuestos utilizados",
-                value: crud.viewing.partsUsed?.length
-                  ? crud.viewing.partsUsed
-                      .map((part) => `${part.inventoryItem?.name ?? "Repuesto"} (${part.quantityUsed})`)
-                      .join(", ")
-                  : "Sin repuestos",
-                wide: true,
-              },
-              { label: "Observaciones", value: crud.viewing.notes, wide: true },
-            ]}
+          <OrderWorkspace
+            token={token}
+            order={crud.viewing}
+            inventory={inventoryList}
+            users={usersList}
+            user={user}
+            onChanged={refreshWorkspace}
+            onEdit={() => {
+              crud.setEditing(crud.viewing);
+              crud.setViewing(null);
+            }}
           />
         )}
       </Modal>
-      <Modal title="Editar orden de reparacion" open={Boolean(crud.editing)} onClose={() => crud.setEditing(null)}>
+      <Modal title="Editar orden de reparación" open={Boolean(crud.editing)} onClose={() => crud.setEditing(null)} size="lg">
         {crud.editing && (
-          <CreateOrderForm
-            token={token}
-            clients={clientsList}
-            devices={devicesList}
-            users={usersList}
-            initialData={crud.editing}
-            onCancel={() => crud.setEditing(null)}
-            onSaved={async () => {
-              await reload();
-              crud.setEditing(null);
-            }}
-          />
+          isAdmin ? (
+            <CreateOrderForm
+              token={token}
+              clients={clientsList}
+              devices={devicesList}
+              users={usersList}
+              inventory={inventoryList}
+              initialData={crud.editing}
+              onClientCreated={reloadClients}
+              onDeviceCreated={reloadDevices}
+              onCancel={() => crud.setEditing(null)}
+              onSaved={async () => {
+                await reload();
+                crud.setEditing(null);
+              }}
+            />
+          ) : (
+            <TechnicianOrderForm
+              token={token}
+              initialData={crud.editing}
+              onCancel={() => crud.setEditing(null)}
+              onSaved={async () => {
+                await reload();
+                crud.setEditing(null);
+              }}
+            />
+          )
         )}
       </Modal>
       <DeleteConfirmation
@@ -1964,7 +3194,7 @@ function ClientsLive({ token }) {
       <ModuleState isLoading={isLoading} error={error} />
       <Panel title="Directorio de clientes">
         <LiveTable
-          columns={["Nombre", "Telefono", "Correo", "Tipo", "Registrado", "Acciones"]}
+          columns={["Nombre", "Teléfono", "Correo", "Tipo", "Registrado", "Acciones"]}
           rows={items.map((client) => [
             client.name,
             client.phone ?? "-",
@@ -1979,7 +3209,9 @@ function ClientsLive({ token }) {
             />,
           ])}
           emptyTitle="Sin clientes"
-          emptyDescription="Aun no hay clientes registrados en la base de datos."
+          emptyDescription="Aún no hay clientes registrados en la base de datos."
+          searchPlaceholder="Buscar por nombre, teléfono o correo"
+          filters={[{ label: "Tipo", column: 3 }]}
         />
       </Panel>
       <Modal title="Nuevo cliente" open={modalOpen} onClose={() => setModalOpen(false)}>
@@ -1998,7 +3230,7 @@ function ClientsLive({ token }) {
             items={[
               { label: "Nombre", value: crud.viewing.name },
               { label: "Tipo", value: crud.viewing.type },
-              { label: "Telefono", value: crud.viewing.phone },
+              { label: "Teléfono", value: crud.viewing.phone },
               { label: "Correo", value: crud.viewing.email },
               { label: "Registrado", value: formatDate(crud.viewing.createdAt) },
               { label: "Ultima actualizacion", value: formatDate(crud.viewing.updatedAt) },
@@ -2052,17 +3284,16 @@ function DevicesLive({ token }) {
       ]}
     >
       <ModuleState isLoading={isLoading} error={error} />
-      <Panel title="Equipos electronicos">
+      <Panel title="Equipos electrónicos">
         <LiveTable
-          columns={["Serie", "Tipo", "Marca", "Modelo", "Propietario", "Condicion", "Estado", "Acciones"]}
+          columns={["Tipo", "Marca", "Modelo", "Propietario", "Condición", "Estado", "Acciones"]}
           rows={items.map((device) => [
-            device.serial,
             device.type,
-            device.brand,
-            device.model,
+            device.brand || "-",
+            device.model || "-",
             device.owner?.name ?? "Sin propietario",
             device.condition ?? "-",
-            <Badge key={device.id ?? device.serial} label={device.status} />,
+            <Badge key={device.id} label={device.status} />,
             <CrudActions
               key={`actions-${device.id}`}
               onView={() => crud.setViewing(device)}
@@ -2071,7 +3302,9 @@ function DevicesLive({ token }) {
             />,
           ])}
           emptyTitle="Sin equipos"
-          emptyDescription="Los equipos registrados desde recepcion apareceran aqui."
+          emptyDescription="Los equipos registrados desde recepción aparecerán aquí."
+          searchPlaceholder="Buscar por tipo, marca, modelo o propietario"
+          filters={[{ label: "Tipo", column: 0 }, { label: "Estado", column: 5 }]}
         />
       </Panel>
       <Modal title="Registrar equipo" open={modalOpen} onClose={() => setModalOpen(false)}>
@@ -2089,13 +3322,12 @@ function DevicesLive({ token }) {
         {crud.viewing && (
           <DetailGrid
             items={[
-              { label: "Serie", value: crud.viewing.serial },
               { label: "Tipo", value: crud.viewing.type },
               { label: "Marca", value: crud.viewing.brand },
               { label: "Modelo", value: crud.viewing.model },
               { label: "Propietario", value: crud.viewing.owner?.name },
               { label: "Estado", value: <Badge label={crud.viewing.status} /> },
-              { label: "Condicion de ingreso", value: crud.viewing.condition, wide: true },
+              { label: "Condición de ingreso", value: crud.viewing.condition, wide: true },
             ]}
           />
         )}
@@ -2131,22 +3363,45 @@ function TechniciansLive({ token }) {
   const [modalOpen, setModalOpen] = useState(false);
   const crud = useCrudActions(token, deleteUser, reload);
   const techniciansList = (data ?? []).filter((user) => user.role === "tecnico");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const filteredTechnicians = techniciansList.filter((technician) => {
+    const matchesQuery = normalizeSearchText(`${technician.name} ${technician.email} ${technician.phone ?? ""}`).includes(normalizeSearchText(query));
+    return matchesQuery && (!statusFilter || technician.status === statusFilter);
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredTechnicians.length / 8));
+  const currentPage = Math.min(page, totalPages);
+  const visibleTechnicians = filteredTechnicians.slice((currentPage - 1) * 8, currentPage * 8);
+
+  useEffect(() => setPage(1), [query, statusFilter, techniciansList.length]);
 
   return (
     <SectionShell
-      buttonLabel="Nuevo tecnico"
+      buttonLabel="Nuevo técnico"
       icon={Plus}
       onAction={() => setModalOpen(true)}
       summary={[
-        ["Tecnicos", techniciansList.length],
+        ["Técnicos", techniciansList.length],
         ["Disponibles", techniciansList.filter((user) => user.status === "Disponible").length],
         ["Ocupados", techniciansList.filter((user) => user.status === "Ocupada").length],
       ]}
     >
       <ModuleState isLoading={isLoading} error={error} />
       {techniciansList.length ? (
+        <>
+        <CollectionToolbar
+          query={query}
+          onQueryChange={setQuery}
+          placeholder="Buscar técnico por nombre, correo o teléfono"
+          filterValue={statusFilter}
+          onFilterChange={setStatusFilter}
+          filterLabel="Estado"
+          options={["Disponible", "Ocupada"]}
+        />
+        {visibleTechnicians.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {techniciansList.map((tech) => (
+          {visibleTechnicians.map((tech) => (
             <article key={tech.id} className="rounded-lg border border-line bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="grid h-11 w-11 place-items-center rounded bg-teal-50 text-teal-700">
@@ -2156,8 +3411,9 @@ function TechniciansLive({ token }) {
               </div>
               <h3 className="mt-4 text-base font-semibold text-ink">{tech.name}</h3>
               <p className="mt-1 text-sm text-slate-500">{tech.email}</p>
+              <p className="mt-1 text-sm text-slate-500">{tech.phone || "Sin teléfono"}</p>
               <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-500">
-                Ultimo acceso
+                Último acceso
               </p>
               <p className="mt-1 text-sm font-medium text-slate-700">{formatDate(tech.lastAccess)}</p>
               <div className="mt-4 flex justify-end border-t border-line pt-3">
@@ -2170,10 +3426,21 @@ function TechniciansLive({ token }) {
             </article>
           ))}
         </div>
+        ) : (
+          <EmptyState title="Sin coincidencias" description="Prueba con otra búsqueda o estado." />
+        )}
+        <PaginationFooter
+          total={techniciansList.length}
+          visible={filteredTechnicians.length}
+          page={currentPage}
+          totalPages={totalPages}
+          onPageChange={setPage}
+        />
+        </>
       ) : (
-        <EmptyState title="Sin tecnicos" description="Aun no hay usuarios tecnicos registrados." />
+        <EmptyState title="Sin técnicos" description="Aún no hay usuarios técnicos registrados." />
       )}
-      <Modal title="Nuevo tecnico" open={modalOpen} onClose={() => setModalOpen(false)}>
+      <Modal title="Nuevo técnico" open={modalOpen} onClose={() => setModalOpen(false)}>
         <CreateUserForm
           token={token}
           defaultRole="tecnico"
@@ -2184,21 +3451,22 @@ function TechniciansLive({ token }) {
           }}
         />
       </Modal>
-      <Modal title="Detalle del tecnico" open={Boolean(crud.viewing)} onClose={() => crud.setViewing(null)}>
+      <Modal title="Detalle del técnico" open={Boolean(crud.viewing)} onClose={() => crud.setViewing(null)}>
         {crud.viewing && (
           <DetailGrid
             items={[
               { label: "Nombre", value: crud.viewing.name },
               { label: "Correo", value: crud.viewing.email },
+              { label: "Teléfono", value: crud.viewing.phone || "-" },
               { label: "Rol", value: getRoleLabel(crud.viewing.role) },
               { label: "Estado", value: <Badge label={crud.viewing.status} /> },
-              { label: "Ultimo acceso", value: formatDate(crud.viewing.lastAccess) },
+              { label: "Último acceso", value: formatDate(crud.viewing.lastAccess) },
               { label: "Registrado", value: formatDate(crud.viewing.createdAt) },
             ]}
           />
         )}
       </Modal>
-      <Modal title="Editar tecnico" open={Boolean(crud.editing)} onClose={() => crud.setEditing(null)}>
+      <Modal title="Editar técnico" open={Boolean(crud.editing)} onClose={() => crud.setEditing(null)}>
         {crud.editing && (
           <CreateUserForm
             token={token}
@@ -2227,6 +3495,20 @@ function TechniciansLive({ token }) {
 function MaintenanceHistoryLive({ token }) {
   const { data = [], isLoading, error } = useApiData(getHistory, token);
   const items = data ?? [];
+  const [query, setQuery] = useState("");
+  const [eventFilter, setEventFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const today = new Date().toDateString();
+  const todayCount = items.filter((item) => new Date(item.createdAt).toDateString() === today).length;
+  const filteredItems = items.filter((item) => {
+    const searchable = `${item.event} ${item.detail ?? ""} ${item.order?.code ?? ""} ${item.author?.name ?? ""}`;
+    return normalizeSearchText(searchable).includes(normalizeSearchText(query)) && (!eventFilter || item.event === eventFilter);
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / 8));
+  const currentPage = Math.min(page, totalPages);
+  const visibleItems = filteredItems.slice((currentPage - 1) * 8, currentPage * 8);
+
+  useEffect(() => setPage(1), [query, eventFilter, items.length]);
 
   return (
     <SectionShell
@@ -2234,15 +3516,24 @@ function MaintenanceHistoryLive({ token }) {
       icon={FileText}
       summary={[
         ["Eventos", items.length],
-        ["Hoy", 0],
-        ["Auditoria", "Activa"],
+        ["Hoy", todayCount],
+        ["Auditoría", "Activa"],
       ]}
     >
       <ModuleState isLoading={isLoading} error={error} />
       <Panel title="Trazabilidad de mantenimiento">
+        <CollectionToolbar
+          query={query}
+          onQueryChange={setQuery}
+          placeholder="Buscar por evento, orden o responsable"
+          filterValue={eventFilter}
+          onFilterChange={setEventFilter}
+          filterLabel="Evento"
+          options={[...new Set(items.map((item) => item.event))].sort()}
+        />
         {items.length ? (
-          <div className="space-y-4">
-            {items.map((item) => (
+          visibleItems.length ? <div className="space-y-4">
+            {visibleItems.map((item) => (
               <div key={item.id} className="rounded border border-line bg-white p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex gap-3">
@@ -2262,46 +3553,170 @@ function MaintenanceHistoryLive({ token }) {
                 </div>
               </div>
             ))}
-          </div>
+          </div> : <EmptyState title="Sin coincidencias" description="Prueba con otra búsqueda o tipo de evento." />
         ) : (
-          <EmptyState title="Sin historial" description="Las acciones de mantenimiento apareceran en esta vista." />
+          <EmptyState title="Sin historial" description="Las acciones de mantenimiento aparecerán en esta vista." />
         )}
+        <PaginationFooter
+          total={items.length}
+          visible={filteredItems.length}
+          page={currentPage}
+          totalPages={totalPages}
+          onPageChange={setPage}
+        />
       </Panel>
     </SectionShell>
   );
 }
 
 function ReportsLive({ token }) {
-  const { data, isLoading, error } = useApiData(getReports, token);
+  const emptyFilters = { from: "", to: "", technicianId: "", status: "" };
+  const [draftFilters, setDraftFilters] = useState(emptyFilters);
+  const [appliedFilters, setAppliedFilters] = useState(emptyFilters);
+  const reportLoader = useMemo(() => (authToken) => getReports(authToken, appliedFilters), [appliedFilters]);
+  const { data, isLoading, error } = useApiData(reportLoader, token);
+  const { data: users = [] } = useApiData(getUsers, token);
+  const technicians = (users ?? []).filter((user) => user.role === "tecnico");
   const byMonth = data?.byMonth ?? [];
   const byStatus = data?.byStatus ?? [];
   const byTechnician = data?.byTechnician ?? [];
   const mostUsedParts = data?.mostUsedParts ?? [];
   const lowStock = data?.lowStock ?? [];
-  const estimatedIncome = Number(data?.estimatedIncome?.estimatedIncome ?? 0);
+  const indicators = data?.indicators ?? {};
+  const activeFilterCount = Object.values(appliedFilters).filter(Boolean).length;
+  const selectedTechnician = technicians.find((technician) => String(technician.id) === String(appliedFilters.technicianId));
+  const filterLabels = {
+    from: appliedFilters.from || "Sin límite",
+    to: appliedFilters.to || "Sin límite",
+    technician: selectedTechnician?.name || "Todos",
+    status: appliedFilters.status || "Todos",
+  };
+
+  function updateFilter(field, value) {
+    setDraftFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function applyFilters(event) {
+    event.preventDefault();
+    if (draftFilters.from && draftFilters.to && draftFilters.from > draftFilters.to) {
+      showToast("La fecha final debe ser igual o posterior a la fecha inicial", "error");
+      return;
+    }
+    setAppliedFilters({ ...draftFilters });
+    showToast("Filtros aplicados correctamente");
+  }
+
+  function clearFilters() {
+    setDraftFilters({ ...emptyFilters });
+    setAppliedFilters({ ...emptyFilters });
+    showToast("Filtros restablecidos");
+  }
+
+  function handlePdfExport() {
+    exportReportPdf(data, filterLabels);
+    showToast("Reporte PDF generado correctamente");
+  }
+
+  function handleExcelExport() {
+    exportReportExcel(data, filterLabels);
+    showToast("Reporte de Excel generado correctamente");
+  }
 
   return (
     <SectionShell
-      buttonLabel="Generar reporte"
-      icon={FileText}
       summary={[
-        ["Ingresos estimados", formatMoney(estimatedIncome)],
-        ["Repuestos usados", mostUsedParts.length],
-        ["Bajo stock", lowStock.length],
+        ["Reparaciones", indicators.totalOrders ?? 0],
+        ["Finalizadas", indicators.completedOrders ?? 0],
+        ["Ingresos estimados", formatMoney(indicators.estimatedIncome)],
+        ["Costo de repuestos", formatMoney(indicators.partsCost)],
+        ["Utilidad estimada", formatMoney(indicators.estimatedProfit)],
+        ["Ticket promedio", formatMoney(indicators.averageTicket)],
       ]}
     >
+      <Panel
+        title="Filtros del reporte"
+        action={<span className="text-sm text-slate-500">{activeFilterCount ? `${activeFilterCount} activos` : "Sin filtros"}</span>}
+      >
+        <form onSubmit={applyFilters} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Field label="Desde">
+            <TextInput type="date" value={draftFilters.from} onChange={(event) => updateFilter("from", event.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <TextInput type="date" value={draftFilters.to} onChange={(event) => updateFilter("to", event.target.value)} />
+          </Field>
+          <Field label="Técnico">
+            <SelectInput value={draftFilters.technicianId} onChange={(event) => updateFilter("technicianId", event.target.value)}>
+              <option value="">Todos los técnicos</option>
+              {technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.name}</option>)}
+            </SelectInput>
+          </Field>
+          <Field label="Estado">
+            <SelectInput value={draftFilters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+              <option value="">Todos los estados</option>
+              {orderStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+            </SelectInput>
+          </Field>
+          <div className="flex flex-wrap gap-3 md:col-span-2 xl:col-span-4 xl:justify-end">
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex items-center justify-center gap-2 rounded border border-line px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <X className="h-4 w-4" />
+              Limpiar
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Aplicar filtros
+            </button>
+          </div>
+        </form>
+      </Panel>
       <ModuleState isLoading={isLoading} error={error} />
-      <div className="grid gap-6 xl:grid-cols-2">
-        <ReportPanel title="Reparaciones por mes" rows={byMonth} labelKey="month" valueKey="total" />
-        <ReportPanel title="Ordenes por estado" rows={byStatus} labelKey="status" valueKey="total" />
-        <ReportPanel title="Reparaciones por tecnico" rows={byTechnician} labelKey="technician.name" valueKey="total" />
-        <ReportPanel title="Repuestos mas usados" rows={mostUsedParts} labelKey="inventoryItem.name" valueKey="totalUsed" />
+      <div className="flex flex-wrap justify-end gap-3">
+        <button
+          type="button"
+          disabled={!data || isLoading}
+          onClick={handlePdfExport}
+          className="inline-flex items-center justify-center gap-2 rounded border border-line bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" />
+          Exportar PDF
+        </button>
+        <button
+          type="button"
+          disabled={!data || isLoading}
+          onClick={handleExcelExport}
+          className="inline-flex items-center justify-center gap-2 rounded bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <FileSpreadsheet className="h-4 w-4" />
+          Exportar Excel
+        </button>
       </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ReportPanel title="Reparaciones por mes" rows={byMonth} labelKey="month" valueKey="total" barClassName="bg-brand-500" />
+        <ReportPanel title="Órdenes por estado" rows={byStatus} labelKey="status" valueKey="total" barClassName="bg-amber-500" />
+        <ReportPanel title="Reparaciones por técnico" rows={byTechnician} labelKey="name" valueKey="total" barClassName="bg-teal-500" />
+        <ReportPanel title="Repuestos más usados" rows={mostUsedParts} labelKey="name" valueKey="totalUsed" barClassName="bg-emerald-500" />
+      </div>
+      <Panel title={`Alertas de stock bajo (${lowStock.length})`}>
+        {lowStock.length ? (
+          <ResponsiveTable
+            columns={["Código", "Repuesto", "Existencia", "Mínimo"]}
+            rows={lowStock.map((item) => [item.code, item.name, item.quantity, item.minStock])}
+          />
+        ) : (
+          <EmptyState title="Inventario saludable" description="No hay repuestos por debajo del stock mínimo." />
+        )}
+      </Panel>
     </SectionShell>
   );
 }
 
-function ReportPanel({ title, rows, labelKey, valueKey }) {
+function ReportPanel({ title, rows, labelKey, valueKey, barClassName = "bg-brand-500" }) {
   const max = Math.max(...rows.map((row) => Number(row[valueKey] ?? 0)), 1);
 
   return (
@@ -2318,14 +3733,14 @@ function ReportPanel({ title, rows, labelKey, valueKey }) {
                   <span className="text-slate-500">{value}</span>
                 </div>
                 <div className="h-3 rounded bg-slate-100">
-                  <div className="h-full rounded bg-brand-500" style={{ width: `${(value / max) * 100}%` }} />
+                  <div className={`h-full rounded ${barClassName}`} style={{ width: `${(value / max) * 100}%` }} />
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <EmptyState title="Sin datos para reporte" description="Este reporte se llenara cuando existan operaciones." />
+        <EmptyState title="Sin datos para reporte" description="Este reporte se llenará cuando existan operaciones." />
       )}
     </Panel>
   );
@@ -2352,17 +3767,18 @@ function UsersLive({ token }) {
       onAction={() => setModalOpen(true)}
       summary={[
         ["Administradores", admins],
-        ["Tecnicos", items.filter((user) => user.role === "tecnico").length],
+        ["Técnicos", items.filter((user) => user.role === "tecnico").length],
         ["Usuarios", items.length],
       ]}
     >
       <ModuleState isLoading={isLoading} error={error} />
       <Panel title="Usuarios del sistema">
         <LiveTable
-          columns={["Usuario", "Correo", "Rol", "Estado", "Ultimo acceso", "Acciones"]}
+          columns={["Usuario", "Correo", "Teléfono", "Rol", "Estado", "Último acceso", "Acciones"]}
           rows={items.map((user) => [
             user.name,
             user.email,
+            user.phone || "-",
             getRoleLabel(user.role),
             <Badge key={user.id} label={user.status} />,
             formatDate(user.lastAccess),
@@ -2375,6 +3791,8 @@ function UsersLive({ token }) {
           ])}
           emptyTitle="Sin usuarios"
           emptyDescription="Crea el primer administrador para operar el sistema."
+          searchPlaceholder="Buscar por nombre, correo o teléfono"
+          filters={[{ label: "Rol", column: 3 }, { label: "Estado", column: 4 }]}
         />
       </Panel>
       <Modal title="Nuevo usuario" open={modalOpen} onClose={() => setModalOpen(false)}>
@@ -2394,9 +3812,10 @@ function UsersLive({ token }) {
             items={[
               { label: "Nombre", value: crud.viewing.name },
               { label: "Correo", value: crud.viewing.email },
+              { label: "Teléfono", value: crud.viewing.phone || "-" },
               { label: "Rol", value: getRoleLabel(crud.viewing.role) },
               { label: "Estado", value: <Badge label={crud.viewing.status} /> },
-              { label: "Ultimo acceso", value: formatDate(crud.viewing.lastAccess) },
+              { label: "Último acceso", value: formatDate(crud.viewing.lastAccess) },
               { label: "Registrado", value: formatDate(crud.viewing.createdAt) },
             ]}
           />
@@ -2824,14 +4243,16 @@ function SectionShell({ children, buttonLabel, icon: Icon, summary, onAction }) 
             </div>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onAction}
-          className="inline-flex items-center justify-center gap-2 rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
-        >
-          <Icon className="h-4 w-4" />
-          {buttonLabel}
-        </button>
+        {buttonLabel ? (
+          <button
+            type="button"
+            onClick={onAction}
+            className="inline-flex items-center justify-center gap-2 rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+          >
+            <Icon className="h-4 w-4" />
+            {buttonLabel}
+          </button>
+        ) : null}
       </div>
       {children}
     </div>

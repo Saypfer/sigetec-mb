@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
+const { User } = require("../models");
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const [scheme, token] = header.split(" ");
 
@@ -9,7 +10,16 @@ function requireAuth(req, res, next) {
   }
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findByPk(payload.id, {
+      attributes: ["id", "name", "email", "role", "status"],
+    });
+
+    if (!user) {
+      return res.status(401).json({ message: "La cuenta ya no está disponible" });
+    }
+
+    req.user = user.get({ plain: true });
     return next();
   } catch (error) {
     return res.status(401).json({ message: "Token inválido o expirado" });

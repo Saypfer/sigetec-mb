@@ -1,0 +1,49 @@
+name: Pruebas automáticas
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node.js ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Instalar dependencias del backend
+        run: npm ci
+        working-directory: backend
+
+      - name: Probar el backend
+        run: npm test
+        working-directory: backend
+
+      - name: Instalar dependencias del frontend
+        run: npm ci
+        working-directory: frontend
+
+      - name: Probar el frontend
+        run: npm test
+        working-directory: frontend
+
+      - name: Compilar el frontend
+        run: npm run build
+        working-directory: frontend
