@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const { env } = require("./config/env");
 
 const authRoutes = require("./routes/auth.routes");
 const usersRoutes = require("./routes/users.routes");
@@ -14,7 +15,9 @@ const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || "http://127.0.0.1:5173" }));
+if (env.trustProxy) app.set("trust proxy", env.trustProxy);
+
+app.use(cors({ origin: env.corsOrigins }));
 app.use(express.json());
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));

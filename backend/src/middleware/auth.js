@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { User } = require("../models");
+const { env } = require("../config/env");
 
 async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -10,7 +11,7 @@ async function requireAuth(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, env.jwtSecret);
     const user = await User.findByPk(payload.id, {
       attributes: ["id", "name", "email", "role", "status"],
     });

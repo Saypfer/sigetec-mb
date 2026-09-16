@@ -1,11 +1,9 @@
-require("dotenv").config();
-
-const useSsl = process.env.DB_SSL !== "false";
+const { env } = require("./env");
 
 const shared = {
   use_env_variable: "DATABASE_URL",
   dialect: "postgres",
-  dialectOptions: useSsl ? { ssl: { require: true, rejectUnauthorized: false } } : {},
+  dialectOptions: env.dbSsl ? { ssl: { require: true, rejectUnauthorized: false } } : {},
   logging: false,
 };
 

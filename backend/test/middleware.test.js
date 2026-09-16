@@ -79,3 +79,18 @@ test("errorHandler respeta el estado y mensaje de un error conocido", () => {
   assert.equal(response.statusCode, 422);
   assert.deepEqual(response.payload, { message: "Solicitud inválida" });
 });
+
+test("errorHandler no expone el mensaje de un error interno", () => {
+  const response = createResponse();
+  const originalConsoleError = console.error;
+  console.error = () => {};
+
+  try {
+    errorHandler(new Error("password de PostgreSQL incorrecto"), {}, response, () => {});
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(response.statusCode, 500);
+  assert.deepEqual(response.payload, { message: "Error interno del servidor" });
+});

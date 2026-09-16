@@ -1,7 +1,10 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { User } = require("../models");
+const { env } = require("../config/env");
 const { asyncHandler } = require("../utils/asyncHandler");
+
+const DUMMY_PASSWORD_HASH = "$2a$10$zAh9cpPgdjqwedRL3rzheOnHHwOj5c4wY5oDo2Q/JQkZvhDfg5dCG";
 
 function sanitizeUser(user) {
   const { id, name, email, role, status, lastAccess } = user;
@@ -16,12 +19,8 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findOne({ where: { email } });
-  if (!user) {
-    return res.status(401).json({ message: "Credenciales inválidas" });
-  }
-
-  const validPassword = await bcrypt.compare(password, user.passwordHash);
-  if (!validPassword) {
+  const validPassword = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+  if (!user || !validPassword) {
     return res.status(401).json({ message: "Credenciales inválidas" });
   }
 
@@ -30,8 +29,8 @@ const login = asyncHandler(async (req, res) => {
 
   const token = jwt.sign(
     { id: user.id, role: user.role, name: user.name },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "8h" }
+    env.jwtSecret,
+    { expiresIn: env.jwtExpiresIn }
   );
 
   return res.json({ token, user: sanitizeUser(user) });

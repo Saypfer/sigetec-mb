@@ -5,6 +5,8 @@ function notFoundHandler(req, res) {
 }
 
 function errorHandler(err, req, res, next) {
+  if (res.headersSent) return next(err);
+
   if (err instanceof UniqueConstraintError) {
     const field = Object.keys(err.fields ?? {})[0];
     const labels = {
@@ -29,8 +31,17 @@ function errorHandler(err, req, res, next) {
     });
   }
 
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ message: "El cuerpo de la solicitud contiene JSON inválido" });
+  }
+
+  const status = Number(err?.status);
+  if (Number.isInteger(status) && status >= 400 && status < 500) {
+    return res.status(status).json({ message: err.message || "No se pudo completar la solicitud" });
+  }
+
   console.error(err);
-  return res.status(err.status || 500).json({ message: err.message || "Error interno del servidor" });
+  return res.status(500).json({ message: "Error interno del servidor" });
 }
 
 module.exports = { notFoundHandler, errorHandler };

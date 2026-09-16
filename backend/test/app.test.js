@@ -4,7 +4,7 @@ const { after, before, test } = require("node:test");
 process.env.NODE_ENV = "test";
 process.env.DATABASE_URL = "postgres://test:test@127.0.0.1:5432/sigetec_test";
 process.env.DB_SSL = "false";
-process.env.JWT_SECRET = "test-secret";
+process.env.JWT_SECRET = "test-secret-for-automated-tests";
 
 const app = require("../src/app");
 
@@ -38,4 +38,17 @@ test("una ruta inexistente devuelve una respuesta JSON 404", async () => {
 
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { message: "Recurso no encontrado" });
+});
+
+test("un cuerpo JSON inválido devuelve un error controlado", async () => {
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{json-incompleto",
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    message: "El cuerpo de la solicitud contiene JSON inválido",
+  });
 });
