@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const { env } = require("./config/env");
 const { sequelize } = require("./models");
 
@@ -19,8 +20,10 @@ const app = express();
 
 if (env.trustProxy) app.set("trust proxy", env.trustProxy);
 
+app.disable("x-powered-by");
+app.use(helmet());
 app.use(cors({ origin: env.corsOrigins }));
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
 
 app.get("/health", liveness);
 app.get("/ready", createReadinessHandler(sequelize));

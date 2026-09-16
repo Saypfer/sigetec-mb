@@ -33,6 +33,15 @@ test("GET /health informa que el servidor está disponible", async () => {
   assert.deepEqual(await response.json(), { status: "ok" });
 });
 
+test("las respuestas incluyen cabeceras HTTP de seguridad", async () => {
+  const response = await fetch(`${baseUrl}/health`);
+
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.ok(response.headers.get("content-security-policy"));
+  assert.equal(response.headers.get("x-powered-by"), null);
+});
+
 test("una ruta inexistente devuelve una respuesta JSON 404", async () => {
   const response = await fetch(`${baseUrl}/ruta-inexistente`);
 
@@ -50,5 +59,18 @@ test("un cuerpo JSON inválido devuelve un error controlado", async () => {
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
     message: "El cuerpo de la solicitud contiene JSON inválido",
+  });
+});
+
+test("un cuerpo JSON excesivo se rechaza con una respuesta controlada", async () => {
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "admin@example.com", password: "x".repeat(110 * 1024) }),
+  });
+
+  assert.equal(response.status, 413);
+  assert.deepEqual(await response.json(), {
+    message: "El cuerpo de la solicitud supera el límite permitido",
   });
 });

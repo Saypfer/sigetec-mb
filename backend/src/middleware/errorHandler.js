@@ -34,6 +34,9 @@ function errorHandler(err, req, res, next) {
   if (err?.type === "entity.parse.failed") {
     return res.status(400).json({ message: "El cuerpo de la solicitud contiene JSON inválido" });
   }
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({ message: "El cuerpo de la solicitud supera el límite permitido" });
+  }
 
   const status = Number(err?.status);
   if (Number.isInteger(status) && status >= 400 && status < 500) {
