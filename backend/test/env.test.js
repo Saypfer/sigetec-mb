@@ -10,7 +10,9 @@ const { buildConfig } = require("../src/config/env");
 
 const validProductionEnv = {
   NODE_ENV: "production",
+  HOST: "0.0.0.0",
   PORT: "4000",
+  SHUTDOWN_TIMEOUT_MS: "10000",
   DATABASE_URL: "postgresql://user:password@database.example.com:5432/sigetec",
   DB_SSL: "true",
   JWT_SECRET: "a-secure-production-secret-with-32-chars",
@@ -24,6 +26,8 @@ test("acepta y transforma una configuración válida de producción", () => {
 
   assert.equal(config.isProduction, true);
   assert.equal(config.port, 4000);
+  assert.equal(config.host, "0.0.0.0");
+  assert.equal(config.shutdownTimeoutMs, 10000);
   assert.equal(config.dbSsl, true);
   assert.equal(config.trustProxy, 1);
   assert.deepEqual(config.corsOrigins, ["https://app.example.com"]);
@@ -61,5 +65,19 @@ test("rechaza valores booleanos ambiguos", () => {
   assert.throws(
     () => buildConfig({ ...validProductionEnv, DB_SSL: "yes" }),
     /DB_SSL debe ser "true" o "false"/,
+  );
+});
+
+test("rechaza un tiempo de apagado fuera del rango seguro", () => {
+  assert.throws(
+    () => buildConfig({ ...validProductionEnv, SHUTDOWN_TIMEOUT_MS: "500" }),
+    /SHUTDOWN_TIMEOUT_MS debe ser un entero entre 1000 y 60000/,
+  );
+});
+
+test("rechaza un host vacío o con espacios", () => {
+  assert.throws(
+    () => buildConfig({ ...validProductionEnv, HOST: "host no válido" }),
+    /HOST debe ser una dirección o nombre de host válido/,
   );
 });

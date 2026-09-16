@@ -24,6 +24,22 @@ function parsePort(source) {
   return port;
 }
 
+function parseHost(source) {
+  const host = String(source.HOST || "0.0.0.0").trim();
+  if (!host || /\s/.test(host)) {
+    throw new Error("HOST debe ser una dirección o nombre de host válido");
+  }
+  return host;
+}
+
+function parseShutdownTimeout(source) {
+  const timeout = Number(source.SHUTDOWN_TIMEOUT_MS ?? 10000);
+  if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 60000) {
+    throw new Error("SHUTDOWN_TIMEOUT_MS debe ser un entero entre 1000 y 60000");
+  }
+  return timeout;
+}
+
 function parseDatabaseUrl(source) {
   const value = required(source, "DATABASE_URL");
   let url;
@@ -97,7 +113,9 @@ function buildConfig(source) {
   return Object.freeze({
     nodeEnv,
     isProduction: nodeEnv === "production",
+    host: parseHost(source),
     port: parsePort(source),
+    shutdownTimeoutMs: parseShutdownTimeout(source),
     databaseUrl: parseDatabaseUrl(source),
     dbSsl: parseBoolean(source, "DB_SSL", true),
     jwtSecret,
