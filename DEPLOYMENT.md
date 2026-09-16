@@ -2,6 +2,8 @@
 
 La aplicación no depende de un proveedor específico. Puede ejecutarse directamente con Node.js o mediante los contenedores incluidos.
 
+Antes de publicar una versión, completa [PREDEPLOY.md](./PREDEPLOY.md).
+
 ## Requisitos
 
 - Node.js 20 o 22

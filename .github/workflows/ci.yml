@@ -49,3 +49,43 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: https://api.example.invalid/api
+
+  security:
+    name: Auditoría de seguridad
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Auditar dependencias del backend
+        run: npm ci && npm audit --omit=dev --audit-level=high
+        working-directory: backend
+
+      - name: Auditar dependencias del frontend
+        run: npm ci && npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+
+  containers:
+    name: Construir contenedores
+    runs-on: ubuntu-latest
+    needs: [test, security]
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Construir backend sin publicar
+        run: docker build --tag sigetec-mb-backend:ci ./backend
+
+      - name: Construir frontend sin publicar
+        run: docker build --build-arg VITE_API_URL=https://api.example.invalid/api --tag sigetec-mb-frontend:ci ./frontend

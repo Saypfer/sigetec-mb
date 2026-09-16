@@ -44,16 +44,27 @@ test("readiness confirma una conexión disponible con PostgreSQL", async () => {
 });
 
 test("readiness devuelve 503 sin exponer el error de PostgreSQL", async () => {
+  const databaseError = new Error("password authentication failed");
   const database = {
     async authenticate() {
-      throw new Error("password authentication failed");
+      throw databaseError;
     },
   };
-  const logger = { error() {} };
+  let loggedError;
+  const logger = {
+    error(event, fields, error) {
+      loggedError = { event, fields, error };
+    },
+  };
   const response = createResponse();
 
-  await createReadinessHandler(database, logger)({}, response);
+  await createReadinessHandler(database, logger)({ requestId: "request-123" }, response);
 
   assert.equal(response.statusCode, 503);
   assert.deepEqual(response.payload, { status: "unavailable" });
+  assert.deepEqual(loggedError, {
+    event: "database_readiness_failed",
+    fields: { requestId: "request-123" },
+    error: databaseError,
+  });
 });
