@@ -19,7 +19,7 @@ test("cierra HTTP y PostgreSQL antes de terminar correctamente", async () => {
       actions.push("database");
     },
   };
-  const logger = { log() {}, error() {} };
+  const logger = { info() {}, error() {} };
   const exitCodes = [];
   const shutdown = createShutdownHandler({
     server,
@@ -44,7 +44,7 @@ test("ignora señales repetidas durante el cierre", async () => {
     },
   };
   const database = { async close() {} };
-  const logger = { log() {}, error() {} };
+  const logger = { info() {}, error() {} };
   const shutdown = createShutdownHandler({
     server,
     database,

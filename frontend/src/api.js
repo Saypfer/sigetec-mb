@@ -19,6 +19,7 @@ async function request(path, options = {}) {
     const error = new Error(fieldMessage ? `${message}: ${fieldMessage}` : message);
     error.status = response.status;
     error.fields = data.errors ?? {};
+    error.requestId = response.headers.get("x-request-id");
     throw error;
   }
 

@@ -1,4 +1,5 @@
 const { ForeignKeyConstraintError, ValidationError, UniqueConstraintError } = require("sequelize");
+const { logger } = require("../utils/logger");
 
 function notFoundHandler(req, res) {
   res.status(404).json({ message: "Recurso no encontrado" });
@@ -43,7 +44,7 @@ function errorHandler(err, req, res, next) {
     return res.status(status).json({ message: err.message || "No se pudo completar la solicitud" });
   }
 
-  console.error(err);
+  logger.error("request_failed", { requestId: req.requestId }, err);
   return res.status(500).json({ message: "Error interno del servidor" });
 }
 

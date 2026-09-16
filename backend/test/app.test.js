@@ -39,6 +39,7 @@ test("las respuestas incluyen cabeceras HTTP de seguridad", async () => {
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.ok(response.headers.get("content-security-policy"));
+  assert.match(response.headers.get("x-request-id"), /^[0-9a-f-]{36}$/);
   assert.equal(response.headers.get("x-powered-by"), null);
 });
 

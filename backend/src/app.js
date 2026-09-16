@@ -15,14 +15,16 @@ const dashboardRoutes = require("./routes/dashboard.routes");
 const reportsRoutes = require("./routes/reports.routes");
 const { createReadinessHandler, liveness } = require("./controllers/health.controller");
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
+const { createRequestContext } = require("./middleware/requestContext");
 
 const app = express();
 
 if (env.trustProxy) app.set("trust proxy", env.trustProxy);
 
 app.disable("x-powered-by");
+app.use(createRequestContext());
 app.use(helmet());
-app.use(cors({ origin: env.corsOrigins }));
+app.use(cors({ origin: env.corsOrigins, exposedHeaders: ["X-Request-Id"] }));
 app.use(express.json({ limit: "100kb" }));
 
 app.get("/health", liveness);

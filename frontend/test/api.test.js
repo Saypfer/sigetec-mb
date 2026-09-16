@@ -14,10 +14,11 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function jsonResponse(data, { ok = true, status = 200 } = {}) {
+function jsonResponse(data, { ok = true, status = 200, headers = {} } = {}) {
   return {
     ok,
     status,
+    headers: new Headers(headers),
     async json() {
       return data;
     },
@@ -92,7 +93,7 @@ test("los errores HTTP conservan estado, campos y mensaje de validación", async
         message: "Revisa los datos ingresados",
         errors: { email: "Ingresa un correo válido" },
       },
-      { ok: false, status: 400 },
+      { ok: false, status: 400, headers: { "X-Request-Id": "request-id-123" } },
     );
 
   await assert.rejects(
@@ -100,6 +101,7 @@ test("los errores HTTP conservan estado, campos y mensaje de validación", async
     (error) => {
       assert.equal(error.status, 400);
       assert.deepEqual(error.fields, { email: "Ingresa un correo válido" });
+      assert.equal(error.requestId, "request-id-123");
       assert.equal(error.message, "Revisa los datos ingresados: Ingresa un correo válido");
       return true;
     },

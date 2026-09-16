@@ -1,11 +1,13 @@
-const { env } = require("./config/env");
-const app = require("./app");
-const { sequelize } = require("./models");
 const { registerGracefulShutdown } = require("./utils/gracefulShutdown");
+const { logger } = require("./utils/logger");
 
 async function start() {
+  const { env } = require("./config/env");
+  const app = require("./app");
+  const { sequelize } = require("./models");
+
   await sequelize.authenticate();
-  console.log("Conexión a la base de datos establecida.");
+  logger.info("database_connected");
 
   const server = await new Promise((resolve, reject) => {
     const instance = app.listen(env.port, env.host, () => resolve(instance));
@@ -16,12 +18,13 @@ async function start() {
     server,
     database: sequelize,
     timeoutMs: env.shutdownTimeoutMs,
+    logger,
   });
 
-  console.log(`Servidor SIGETEC-MB escuchando en http://${env.host}:${env.port}`);
+  logger.info("server_started", { host: env.host, port: env.port });
 }
 
 start().catch((error) => {
-  console.error("No se pudo iniciar el servidor:", error.message);
+  logger.error("server_start_failed", {}, error);
   process.exit(1);
 });

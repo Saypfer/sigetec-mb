@@ -1,15 +1,23 @@
-function createShutdownHandler({ server, database, timeoutMs, logger = console, exit = process.exit }) {
+const { logger: defaultLogger } = require("./logger");
+
+function createShutdownHandler({
+  server,
+  database,
+  timeoutMs,
+  logger = defaultLogger,
+  exit = process.exit,
+}) {
   let shutdownStarted = false;
 
   return async function shutdown(signal) {
     if (shutdownStarted) return;
     shutdownStarted = true;
-    logger.log(`Señal ${signal} recibida. Cerrando el servidor...`);
+    logger.info("shutdown_started", { signal });
 
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
-      logger.error(`El cierre superó el límite de ${timeoutMs} ms`);
+      logger.error("shutdown_timeout", { timeoutMs });
       exit(1);
     }, timeoutMs);
     timeout.unref?.();
@@ -24,13 +32,13 @@ function createShutdownHandler({ server, database, timeoutMs, logger = console, 
 
       if (!timedOut) {
         clearTimeout(timeout);
-        logger.log("Servidor y conexiones de base de datos cerrados correctamente");
+        logger.info("shutdown_completed");
         exit(0);
       }
     } catch (error) {
       if (!timedOut) {
         clearTimeout(timeout);
-        logger.error("No se pudo cerrar el servidor correctamente:", error);
+        logger.error("shutdown_failed", {}, error);
         exit(1);
       }
     }

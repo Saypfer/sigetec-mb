@@ -36,6 +36,29 @@ El frontend queda disponible en el puerto `8080` y el backend utiliza `PORT`, cu
 
 Los contenedores no crean ni modifican el esquema automáticamente. Antes del primer arranque se debe inicializar deliberadamente la base vacía con el esquema del proyecto. Esto evita cambios inesperados durante un reinicio o despliegue.
 
+## Primer administrador
+
+Después de inicializar el esquema y antes de publicar la aplicación, configura temporalmente estas variables en el entorno del backend:
+
+- `INITIAL_ADMIN_NAME`
+- `INITIAL_ADMIN_EMAIL`
+- `INITIAL_ADMIN_PASSWORD`: entre 12 caracteres y 72 bytes.
+- `INITIAL_ADMIN_PHONE`: opcional; debe contener exactamente 8 números.
+
+Ejecuta el comando una sola vez desde `backend`:
+
+```sh
+npm run create-admin
+```
+
+El comando bloquea la creación si ya existe un administrador y nunca imprime la contraseña. Al terminar, elimina las cuatro variables del entorno o del gestor de secretos. Los siguientes usuarios deben crearse desde la sección de usuarios de la aplicación.
+
+## Registros operativos
+
+El backend escribe registros JSON en la salida estándar y los errores en la salida de errores. Cada solicitud recibe la cabecera `X-Request-Id`, que permite relacionar una respuesta con su registro sin almacenar cuerpos, contraseñas ni tokens. Las rutas `/health` y `/ready` no generan registros de acceso para evitar ruido del monitoreo.
+
+La plataforma elegida debe conservar ambas salidas. No es necesario montar archivos de logs dentro del contenedor.
+
 ## Apagado
 
 El backend atiende `SIGTERM` y `SIGINT`, deja de aceptar solicitudes y cierra las conexiones de PostgreSQL. Si no finaliza antes de `SHUTDOWN_TIMEOUT_MS`, termina con código de error para que la plataforma pueda reemplazar la instancia.
