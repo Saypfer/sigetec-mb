@@ -13,6 +13,8 @@
     "test": "node --test",
     "test:watch": "node --test --watch",
     "create-admin": "node src/scripts/createInitialAdmin.js",
+    "db:backup": "node src/scripts/backupDatabase.js",
+    "db:restore": "node src/scripts/restoreDatabase.js",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "seed": "sequelize-cli db:seed:all",

@@ -53,6 +53,37 @@ npm run create-admin
 
 El comando bloquea la creación si ya existe un administrador y nunca imprime la contraseña. Al terminar, elimina las cuatro variables del entorno o del gestor de secretos. Los siguientes usuarios deben crearse desde la sección de usuarios de la aplicación.
 
+## Respaldos y recuperación
+
+La imagen del backend incluye `pg_dump` y `pg_restore`. Ambos comandos leen `DATABASE_URL` sin colocar la contraseña en los argumentos del proceso.
+
+Para crear un respaldo en formato comprimido de PostgreSQL, ejecuta desde `backend`:
+
+```sh
+npm run db:backup -- --output=backups/sigetec.dump
+```
+
+El comando rechaza un archivo de destino existente y genera dos archivos que deben almacenarse juntos fuera del contenedor:
+
+- `sigetec.dump`: respaldo en formato personalizado de PostgreSQL.
+- `sigetec.dump.sha256`: checksum utilizado para detectar corrupción o modificaciones.
+
+Para restaurar en una base vacía o de prueba:
+
+```sh
+npm run db:restore -- --file=backups/sigetec.dump --confirm-database=sigetec
+```
+
+El valor de `--confirm-database` debe coincidir exactamente con el nombre incluido en `DATABASE_URL`. La restauración se cancela si falta el checksum, si no coincide o si el archivo no es un respaldo válido.
+
+Solo cuando se pretenda reemplazar deliberadamente objetos existentes se puede agregar `--clean`:
+
+```sh
+npm run db:restore -- --file=backups/sigetec.dump --confirm-database=sigetec --clean
+```
+
+`--clean` elimina objetos de la base destino antes de restaurarlos. Debe probarse primero sobre una base separada. Como política inicial, conserva respaldos diarios durante 7 días, semanales durante 4 semanas y mensuales durante 12 meses; cifra el almacenamiento y realiza una restauración de prueba periódica.
+
 ## Registros operativos
 
 El backend escribe registros JSON en la salida estándar y los errores en la salida de errores. Cada solicitud recibe la cabecera `X-Request-Id`, que permite relacionar una respuesta con su registro sin almacenar cuerpos, contraseñas ni tokens. Las rutas `/health` y `/ready` no generan registros de acceso para evitar ruido del monitoreo.

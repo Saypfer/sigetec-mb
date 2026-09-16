@@ -9,6 +9,10 @@ FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
+RUN apk add --no-cache postgresql-client \
+    && mkdir -p /app/backups \
+    && chown node:node /app/backups
+
 COPY --chown=node:node package.json package-lock.json ./
 COPY --chown=node:node --from=dependencies /app/node_modules ./node_modules
 COPY --chown=node:node src ./src
