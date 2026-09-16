@@ -12,8 +12,8 @@ let baseUrl;
 let database;
 let server;
 
-async function request(path, { method = "GET", token, body } = {}) {
-  const headers = {};
+async function request(path, { method = "GET", token, body, headers: requestHeaders = {} } = {}) {
+  const headers = { ...requestHeaders };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
@@ -157,6 +157,7 @@ test("roles, órdenes e inventario conservan sus reglas en el flujo crítico", a
       clientId: clientResult.payload.id,
       deviceId: deviceResult.payload.id,
       issue: "No inicia",
+      notes: "Seguimiento técnico. ".repeat(80),
       status: "Pendiente",
       entryDate: "2026-09-15",
       partsUsed: [
@@ -167,6 +168,13 @@ test("roles, órdenes e inventario conservan sus reglas en el flujo crítico", a
   assert.equal(orderResult.response.status, 201);
   assert.equal(orderResult.payload.partsUsed.length, 1);
   assert.equal(orderResult.payload.history.length, 2);
+
+  const compressedOrders = await request("/api/orders", {
+    token: adminToken,
+    headers: { "Accept-Encoding": "gzip" },
+  });
+  assert.equal(compressedOrders.response.status, 200);
+  assert.equal(compressedOrders.response.headers.get("content-encoding"), "gzip");
 
   const inventoryAfterOrder = await database.InventoryItem.findByPk(inventoryResult.payload.id);
   assert.equal(inventoryAfterOrder.quantity, 3);

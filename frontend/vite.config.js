@@ -24,5 +24,15 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            icons: ["lucide-react"],
+            react: ["react", "react-dom"],
+          },
+        },
+      },
+    },
   };
 });

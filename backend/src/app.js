@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const helmet = require("helmet");
 const { env } = require("./config/env");
 const { sequelize } = require("./models");
@@ -24,6 +25,7 @@ if (env.trustProxy) app.set("trust proxy", env.trustProxy);
 app.disable("x-powered-by");
 app.use(createRequestContext());
 app.use(helmet());
+app.use(compression({ threshold: 1024 }));
 app.use(cors({ origin: env.corsOrigins, exposedHeaders: ["X-Request-Id"] }));
 app.use(express.json({ limit: "100kb" }));
 

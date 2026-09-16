@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
+    "build:check": "npm run build && node scripts/checkBuildSize.js",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test",
     "test:watch": "node --test --watch"

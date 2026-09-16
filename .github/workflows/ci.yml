@@ -45,7 +45,7 @@ jobs:
         working-directory: frontend
 
       - name: Compilar el frontend
-        run: npm run build
+        run: npm run build:check
         working-directory: frontend
         env:
           VITE_API_URL: https://api.example.invalid/api
