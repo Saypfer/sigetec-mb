@@ -556,8 +556,8 @@ function App() {
 }
 
 function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState("admin@tallermb.gt");
-  const [password, setPassword] = useState("sigetecmb");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -580,7 +580,7 @@ function LoginScreen({ onLogin }) {
       <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
         <section className="relative hidden overflow-hidden bg-ink lg:block">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(20,121,209,0.45),transparent_32%),radial-gradient(circle_at_75%_45%,rgba(20,184,166,0.22),transparent_30%)]" />
-          <div className="relative flex h-full flex-col justify-between p-12 text-white">
+          <div className="relative flex h-full flex-col p-12 text-white">
             <div>
               <div className="inline-flex items-center gap-3 rounded border border-white/15 bg-white/10 px-3 py-2 backdrop-blur">
                 <Cpu className="h-5 w-5 text-cyan-200" />
@@ -593,16 +593,6 @@ function LoginScreen({ onLogin }) {
                 Panel interno para Taller de Electrónicos MB con seguimiento de
                 órdenes, inventario y mantenimiento técnico.
               </p>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              {["248 órdenes", "14 técnicos", "18 alertas"].map((item) => (
-                <div key={item} className="rounded border border-white/15 bg-white/10 p-4">
-                  <p className="text-sm font-medium text-slate-200">{item}</p>
-                  <div className="mt-3 h-1.5 rounded bg-white/20">
-                    <div className="h-full w-2/3 rounded bg-cyan-300" />
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </section>
@@ -629,6 +619,8 @@ function LoginScreen({ onLogin }) {
                 <span className="text-sm font-medium text-slate-700">Correo</span>
                 <input
                   type="email"
+                  name="email"
+                  autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   required
@@ -639,6 +631,8 @@ function LoginScreen({ onLogin }) {
                 <span className="text-sm font-medium text-slate-700">Contraseña</span>
                 <input
                   type="password"
+                  name="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   required
@@ -873,56 +867,53 @@ function DashboardLive({ token }) {
     };
   }, [token]);
 
-  const dashboardStats = dashboardData
-    ? [
-        {
-          label: "Ordenes registradas",
-          value: dashboardData.totalOrders,
-          change: "Datos desde Neon",
-          icon: FileText,
-          tone: "blue",
-        },
-        {
-          label: "Pendientes",
-          value: dashboardData.pendingOrders,
-          change: "Ordenes por iniciar",
-          icon: CalendarClock,
-          tone: "amber",
-        },
-        {
-          label: "En reparación",
-          value: dashboardData.inRepairOrders,
-          change: "Trabajo activo",
-          icon: Wrench,
-          tone: "teal",
-        },
-        {
-          label: "Finalizadas",
-          value: dashboardData.finishedOrders,
-          change: "Finalizadas o entregadas",
-          icon: CheckCircle2,
-          tone: "emerald",
-        },
-      ]
-    : stats;
+  const dashboardStats = [
+    {
+      label: "Ordenes registradas",
+      value: dashboardData?.totalOrders ?? "—",
+      change: "Total de órdenes",
+      icon: FileText,
+      tone: "blue",
+    },
+    {
+      label: "Pendientes",
+      value: dashboardData?.pendingOrders ?? "—",
+      change: "Ordenes por iniciar",
+      icon: CalendarClock,
+      tone: "amber",
+    },
+    {
+      label: "En reparación",
+      value: dashboardData?.inRepairOrders ?? "—",
+      change: "Trabajo activo",
+      icon: Wrench,
+      tone: "teal",
+    },
+    {
+      label: "Finalizadas",
+      value: dashboardData?.finishedOrders ?? "—",
+      change: "Finalizadas o entregadas",
+      icon: CheckCircle2,
+      tone: "emerald",
+    },
+  ];
 
-  const recentOrders = dashboardData
-    ? (dashboardData.recentOrders ?? []).map((order) => ({
-        code: order.code,
-        client: order.client?.name ?? "Sin cliente",
-        device: [order.device?.brand, order.device?.model].filter(Boolean).join(" ") || "Sin equipo",
-        technician: order.technician?.name ?? "Sin asignar",
-        status: order.status,
-        cost: `Q ${Number(order.cost ?? 0).toLocaleString("es-GT", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`,
-      }))
-    : orders;
+  const recentOrders = (dashboardData?.recentOrders ?? []).map((order) => ({
+    code: order.code,
+    client: order.client?.name ?? "Sin cliente",
+    device: [order.device?.brand, order.device?.model].filter(Boolean).join(" ") || "Sin equipo",
+    technician: order.technician?.name ?? "Sin asignar",
+    status: order.status,
+    cost: `Q ${Number(order.cost ?? 0).toLocaleString("es-GT", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`,
+  }));
 
-  const lowStockItems = dashboardData
-    ? (dashboardData.lowStockItems ?? []).map((item) => ({ ...item, min: item.minStock }))
-    : inventory.filter((item) => item.status === "Stock bajo");
+  const lowStockItems = (dashboardData?.lowStockItems ?? []).map((item) => ({
+    ...item,
+    min: item.minStock,
+  }));
 
   return (
     <div className="space-y-6">
@@ -989,23 +980,13 @@ function DashboardLive({ token }) {
               ))
             ) : (
               <div className="rounded border border-line bg-slate-50 p-4 text-sm text-slate-600">
-                No hay repuestos con stock bajo.
+                {dashboardData ? "No hay repuestos con stock bajo." : "Datos de inventario no disponibles."}
               </div>
             )}
           </div>
         </Panel>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <MiniPanel
-          icon={PackageCheck}
-          label="Repuestos con stock bajo"
-          value={dashboardData?.lowStockCount ?? "18"}
-          tone="rose"
-        />
-        <MiniPanel icon={Gauge} label="Productividad semanal" value="91%" tone="teal" />
-        <MiniPanel icon={FileClock} label="Tiempo promedio" value="2.4 dias" tone="blue" />
-      </div>
     </div>
   );
 }
@@ -1328,7 +1309,7 @@ function TextAreaInput(props) {
   );
 }
 
-function FormActions({ isSubmitting, onCancel }) {
+function FormActions({ isSubmitting, onCancel, formId }) {
   return (
     <div className="flex flex-col-reverse gap-3 border-t border-line pt-4 sm:flex-row sm:justify-end">
       <button
@@ -1340,6 +1321,7 @@ function FormActions({ isSubmitting, onCancel }) {
       </button>
       <button
         type="submit"
+        form={formId}
         disabled={isSubmitting}
         className="inline-flex justify-center rounded bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-400"
       >
@@ -2414,7 +2396,8 @@ function CreateOrderForm({
   );
 }
 
-function TechnicianOrderForm({ token, initialData, onSaved, onCancel }) {
+function TechnicianOrderForm({ token, initialData, inventory, onPartsChanged, onSaved, onCancel }) {
+  const formId = `technician-order-${initialData.id}`;
   const [form, setForm] = useState({
     status: initialData.status,
     diagnosis: initialData.diagnosis ?? "",
@@ -2460,31 +2443,45 @@ function TechnicianOrderForm({ token, initialData, onSaved, onCancel }) {
   }
 
   return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      <FormError message={error} />
-      <Field label="Estado">
-        <SelectInput value={form.status} onChange={(event) => update("status", event.target.value)}>
-          {orderStatusOptions.map((status) => (
-            <option key={status} value={status}>{status}</option>
-          ))}
-        </SelectInput>
-      </Field>
-      <Field label="Diagnóstico">
-        <TextAreaInput value={form.diagnosis} onChange={(event) => update("diagnosis", event.target.value)} />
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Fecha de entrega">
-          <TextInput type="date" value={form.deliveryDate} onChange={(event) => update("deliveryDate", event.target.value)} />
+    <div className="space-y-6">
+      <form id={formId} className="space-y-4" onSubmit={handleSubmit}>
+        <FormError message={error} />
+        <Field label="Estado">
+          <SelectInput value={form.status} onChange={(event) => update("status", event.target.value)}>
+            {orderStatusOptions.map((status) => (
+              <option key={status} value={status}>{status}</option>
+            ))}
+          </SelectInput>
         </Field>
-        <Field label="Costo">
-          <TextInput type="number" min="0" step="0.01" value={form.cost} onChange={(event) => update("cost", event.target.value)} />
+        <Field label="Diagnóstico">
+          <TextAreaInput value={form.diagnosis} onChange={(event) => update("diagnosis", event.target.value)} />
         </Field>
-      </div>
-      <Field label="Notas técnicas">
-        <TextAreaInput value={form.notes} onChange={(event) => update("notes", event.target.value)} />
-      </Field>
-      <FormActions isSubmitting={isSubmitting} onCancel={onCancel} />
-    </form>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Fecha de entrega">
+            <TextInput type="date" value={form.deliveryDate} onChange={(event) => update("deliveryDate", event.target.value)} />
+          </Field>
+          <Field label="Costo">
+            <TextInput type="number" min="0" step="0.01" value={form.cost} onChange={(event) => update("cost", event.target.value)} />
+          </Field>
+        </div>
+        <Field label="Notas técnicas">
+          <TextAreaInput value={form.notes} onChange={(event) => update("notes", event.target.value)} />
+        </Field>
+      </form>
+      <section className="border-t border-line pt-5">
+        <p className="mb-4 text-sm text-slate-600">
+          Los repuestos se guardan al asignarlos, independientemente de los cambios del formulario.
+        </p>
+        <OrderParts
+          token={token}
+          order={initialData}
+          inventory={inventory}
+          onChanged={onPartsChanged}
+          canEdit
+        />
+      </section>
+      <FormActions isSubmitting={isSubmitting} onCancel={onCancel} formId={formId} />
+    </div>
   );
 }
 
@@ -3017,6 +3014,16 @@ function OrdersLive({ token, user }) {
     crud.setViewing(updated);
   }
 
+  async function refreshEditedOrder() {
+    if (!crud.editing) return;
+    const [updated] = await Promise.all([
+      getOrder(token, crud.editing.id),
+      reload(),
+      reloadInventory(),
+    ]);
+    crud.setEditing(updated);
+  }
+
   async function handleClaim(order) {
     setClaimingId(order.id);
     setActionError("");
@@ -3152,6 +3159,8 @@ function OrdersLive({ token, user }) {
             <TechnicianOrderForm
               token={token}
               initialData={crud.editing}
+              inventory={inventoryList}
+              onPartsChanged={refreshEditedOrder}
               onCancel={() => crud.setEditing(null)}
               onSaved={async () => {
                 await reload();

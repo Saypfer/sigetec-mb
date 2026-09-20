@@ -192,6 +192,35 @@ test("roles, órdenes e inventario conservan sus reglas en el flujo crítico", a
   });
   assert.equal(competingClaim.response.status, 409);
 
+  const deniedPart = await request(`/api/orders/${orderResult.payload.id}/parts`, {
+    method: "POST",
+    token: otherTechnicianToken,
+    body: { inventoryItemId: inventoryResult.payload.id, quantityUsed: 1 },
+  });
+  assert.equal(deniedPart.response.status, 403);
+
+  const addedPart = await request(`/api/orders/${orderResult.payload.id}/parts`, {
+    method: "POST",
+    token: technicianToken,
+    body: { inventoryItemId: inventoryResult.payload.id, quantityUsed: 1 },
+  });
+  assert.equal(addedPart.response.status, 201);
+  assert.equal(addedPart.payload.quantityUsed, 1);
+  assert.equal((await database.InventoryItem.findByPk(inventoryResult.payload.id)).quantity, 2);
+
+  const orderWithPart = await request(`/api/orders/${orderResult.payload.id}`, {
+    token: technicianToken,
+  });
+  assert.equal(orderWithPart.response.status, 200);
+  assert.equal(orderWithPart.payload.partsUsed.length, 2);
+
+  const removedPart = await request(
+    `/api/orders/${orderResult.payload.id}/parts/${addedPart.payload.id}`,
+    { method: "DELETE", token: technicianToken }
+  );
+  assert.equal(removedPart.response.status, 204);
+  assert.equal((await database.InventoryItem.findByPk(inventoryResult.payload.id)).quantity, 3);
+
   const forbiddenUpdate = await request(`/api/orders/${orderResult.payload.id}`, {
     method: "PUT",
     token: technicianToken,

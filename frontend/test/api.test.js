@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
 import {
+  addOrderPart,
   createInventoryItem,
   getDashboard,
   getReports,
@@ -69,6 +70,23 @@ test("createInventoryItem serializa el contenido solicitado", async () => {
 
   assert.equal(receivedOptions.method, "POST");
   assert.deepEqual(JSON.parse(receivedOptions.body), { code: "REP-01", quantity: 5 });
+});
+
+test("addOrderPart envía el repuesto y la cantidad a la orden indicada", async () => {
+  let receivedUrl;
+  let receivedOptions;
+  globalThis.fetch = async (url, options) => {
+    receivedUrl = url;
+    receivedOptions = options;
+    return jsonResponse({ id: 7 }, { status: 201 });
+  };
+
+  await addOrderPart("token", 12, { inventoryItemId: 3, quantityUsed: 2 });
+
+  assert.equal(receivedUrl, "http://127.0.0.1:4000/api/orders/12/parts");
+  assert.equal(receivedOptions.method, "POST");
+  assert.equal(receivedOptions.headers.Authorization, "Bearer token");
+  assert.deepEqual(JSON.parse(receivedOptions.body), { inventoryItemId: 3, quantityUsed: 2 });
 });
 
 test("getReports agrega únicamente los filtros con valor", async () => {
