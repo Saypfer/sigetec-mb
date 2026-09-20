@@ -69,6 +69,7 @@ import {
   updateOrder,
   updateUser,
 } from "./api";
+import { getCompletedOrders } from "./completedOrders";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "tecnico"] },
@@ -430,7 +431,7 @@ const moduleTitles = {
   },
   history: {
     title: "Historial de mantenimiento",
-    subtitle: "Trazabilidad de eventos técnicos y administrativos.",
+    subtitle: "Órdenes finalizadas o entregadas y trazabilidad de eventos.",
   },
   reports: {
     title: "Reportes",
@@ -3503,12 +3504,13 @@ function TechniciansLive({ token }) {
 
 function MaintenanceHistoryLive({ token }) {
   const { data = [], isLoading, error } = useApiData(getHistory, token);
+  const { data: ordersData = [], isLoading: ordersLoading, error: ordersError } = useApiData(getOrders, token);
   const items = data ?? [];
+  const completedOrders = getCompletedOrders(ordersData ?? []);
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [query, setQuery] = useState("");
   const [eventFilter, setEventFilter] = useState("");
   const [page, setPage] = useState(1);
-  const today = new Date().toDateString();
-  const todayCount = items.filter((item) => new Date(item.createdAt).toDateString() === today).length;
   const filteredItems = items.filter((item) => {
     const searchable = `${item.event} ${item.detail ?? ""} ${item.order?.code ?? ""} ${item.author?.name ?? ""}`;
     return normalizeSearchText(searchable).includes(normalizeSearchText(query)) && (!eventFilter || item.event === eventFilter);
@@ -3521,14 +3523,33 @@ function MaintenanceHistoryLive({ token }) {
 
   return (
     <SectionShell
-      buttonLabel="Exportar"
-      icon={FileText}
       summary={[
+        ["Finalizadas", completedOrders.filter((order) => order.status === "Finalizado").length],
+        ["Entregadas", completedOrders.filter((order) => order.status === "Entregado").length],
         ["Eventos", items.length],
-        ["Hoy", todayCount],
-        ["Auditoría", "Activa"],
       ]}
     >
+      <ModuleState isLoading={ordersLoading} error={ordersError} />
+      <Panel title="Órdenes finalizadas y entregadas">
+        <LiveTable
+          columns={["Orden", "Cliente", "Equipo", "Técnico", "Estado", "Última actualización", "Acciones"]}
+          rows={completedOrders.map((order) => [
+            order.code,
+            order.client?.name ?? "Sin cliente",
+            [order.device?.brand, order.device?.model].filter(Boolean).join(" ") || "Sin equipo",
+            order.technician?.name ?? "Sin asignar",
+            <Badge key={`status-${order.id}`} label={order.status} />,
+            formatDateTime(order.updatedAt),
+            <ActionIconButton key={`view-${order.id}`} label="Ver orden" onClick={() => setSelectedOrder(order)}>
+              <Eye className="h-4 w-4" />
+            </ActionIconButton>,
+          ])}
+          emptyTitle="Sin órdenes finalizadas o entregadas"
+          emptyDescription="Aparecerán aquí cuando un técnico cambie su estado."
+          searchPlaceholder="Buscar por orden, cliente, equipo o técnico"
+          filters={[{ label: "Estado", column: 4 }]}
+        />
+      </Panel>
       <ModuleState isLoading={isLoading} error={error} />
       <Panel title="Trazabilidad de mantenimiento">
         <CollectionToolbar
@@ -3574,6 +3595,20 @@ function MaintenanceHistoryLive({ token }) {
           onPageChange={setPage}
         />
       </Panel>
+      <Modal
+        title={selectedOrder ? `Orden ${selectedOrder.code}` : "Orden"}
+        open={Boolean(selectedOrder)}
+        onClose={() => setSelectedOrder(null)}
+        size="lg"
+      >
+        {selectedOrder && (
+          <div className="space-y-6">
+            <Badge label={selectedOrder.status} />
+            <OrderSummary order={selectedOrder} canEdit={false} />
+            <OrderHistory order={selectedOrder} canAdd={false} />
+          </div>
+        )}
+      </Modal>
     </SectionShell>
   );
 }

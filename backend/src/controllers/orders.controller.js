@@ -245,7 +245,7 @@ const update = asyncHandler(async (req, res) => {
   await validateOrderData(updates, order);
   if (updates.code) await ensureUniqueCode(updates.code, order.id);
 
-  const previous = order.get({ plain: true });
+  const previous = { ...order.get({ plain: true }) };
 
   await sequelize.transaction(async (transaction) => {
     await order.update(updates, { transaction });

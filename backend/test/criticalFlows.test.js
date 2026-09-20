@@ -237,6 +237,35 @@ test("roles, órdenes e inventario conservan sus reglas en el flujo crítico", a
   assert.equal(validUpdate.payload.status, "En reparación");
   assert.equal(validUpdate.payload.diagnosis, "SSD defectuosa");
 
+  for (const status of ["Finalizado", "Entregado"]) {
+    const completedUpdate = await request(`/api/orders/${orderResult.payload.id}`, {
+      method: "PUT",
+      token: technicianToken,
+      body: { status },
+    });
+    assert.equal(completedUpdate.response.status, 200);
+    assert.equal(completedUpdate.payload.status, status);
+    assert.ok(completedUpdate.payload.history.some((event) =>
+      event.event === `Estado actualizado a "${status}"`
+    ));
+
+    const technicianHistory = await request("/api/history", { token: technicianToken });
+    assert.equal(technicianHistory.response.status, 200);
+    assert.ok(technicianHistory.payload.some((event) =>
+      event.orderId === orderResult.payload.id && event.event === `Estado actualizado a "${status}"`
+    ));
+  }
+
+  const technicianOrders = await request("/api/orders", { token: technicianToken });
+  assert.equal(technicianOrders.response.status, 200);
+  assert.ok(technicianOrders.payload.some((order) =>
+    order.id === orderResult.payload.id && order.status === "Entregado"
+  ));
+
+  const otherTechnicianHistory = await request("/api/history", { token: otherTechnicianToken });
+  assert.equal(otherTechnicianHistory.response.status, 200);
+  assert.ok(otherTechnicianHistory.payload.every((event) => event.orderId !== orderResult.payload.id));
+
   const ordersBeforeFailure = await database.RepairOrder.count();
   const insufficientInventory = await request("/api/orders", {
     method: "POST",
