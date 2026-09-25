@@ -6,7 +6,7 @@ process.env.DATABASE_URL = "postgres://test:test@127.0.0.1:5432/sigetec_test";
 process.env.DB_SSL = "false";
 process.env.JWT_SECRET = "test-secret-for-automated-tests";
 
-const app = require("../src/app");
+const app = require("../index");
 
 let server;
 let baseUrl;
