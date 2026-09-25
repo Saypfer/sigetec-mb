@@ -1,13 +1,24 @@
 "use strict";
 
 const bcrypt = require("bcryptjs");
-const db = require("../models");
 
-const SEED_PASSWORD = "sigetecmb";
+function getDemoSeedPassword() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("El seeder de demostración no está permitido en producción");
+  }
+
+  const password = process.env.DEMO_SEED_PASSWORD;
+  if (!password || password.length < 12) {
+    throw new Error("DEMO_SEED_PASSWORD debe contener al menos 12 caracteres");
+  }
+
+  return password;
+}
 
 module.exports = {
   up: async () => {
-    const passwordHash = bcrypt.hashSync(SEED_PASSWORD, 10);
+    const passwordHash = bcrypt.hashSync(getDemoSeedPassword(), 10);
+    const db = require("../models");
 
     const admin = await db.User.create({
       name: "Admin MB",

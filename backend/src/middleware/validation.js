@@ -30,6 +30,22 @@ const optionalPhone = (field) =>
     .matches(/^\d{8}$/)
     .withMessage("El teléfono debe contener exactamente 8 números");
 
+const loginRules = [
+  body("email")
+    .isString()
+    .withMessage("Ingresa un correo válido")
+    .trim()
+    .isEmail()
+    .withMessage("Ingresa un correo válido")
+    .normalizeEmail(),
+  body("password")
+    .isString()
+    .withMessage("La contraseña es requerida")
+    .isLength({ min: 1, max: 72 })
+    .withMessage("La contraseña debe contener entre 1 y 72 caracteres"),
+  validateRequest,
+];
+
 const clientRules = [
   body("name").trim().isLength({ min: 2, max: 120 }).withMessage("Ingresa un nombre de 2 a 120 caracteres"),
   optionalPhone("phone"),
@@ -154,6 +170,7 @@ const reportFilterRules = [
 ];
 
 module.exports = {
+  loginRules,
   clientRules,
   inventoryRules,
   deviceRules,
