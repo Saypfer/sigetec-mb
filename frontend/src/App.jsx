@@ -560,6 +560,7 @@ function App() {
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -629,18 +630,33 @@ function LoginScreen({ onLogin }) {
                   className="mt-2 w-full rounded border border-line bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
                 />
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700">Contraseña</span>
-                <input
-                  type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  className="mt-2 w-full rounded border border-line bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
-                />
-              </label>
+              <div>
+                <label htmlFor="login-password" className="text-sm font-medium text-slate-700">
+                  Contraseña
+                </label>
+                <div className="relative mt-2">
+                  <input
+                    id="login-password"
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                    className="w-full rounded border border-line bg-white px-3 py-2.5 pr-11 text-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    aria-pressed={showPassword}
+                    title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r text-slate-500 transition hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
               {error ? (
                 <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
                   {error}
