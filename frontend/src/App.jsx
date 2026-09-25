@@ -70,6 +70,7 @@ import {
   updateUser,
 } from "./api";
 import { getCompletedOrders } from "./completedOrders";
+import { getInventorySummary } from "./inventorySummary";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "tecnico"] },
@@ -2868,19 +2869,13 @@ function InventoryLive({ token, user }) {
   const crud = useCrudActions(token, deleteInventoryItem, reload);
   const isAdmin = user?.role === "admin";
   const items = data ?? [];
-  const lowStockCount = items.filter((item) => item.status === "Stock bajo").length;
-  const totalValue = items.reduce((total, item) => total + Number(item.price ?? 0) * Number(item.quantity ?? 0), 0);
 
   return (
     <SectionShell
       buttonLabel={isAdmin ? "Nuevo repuesto" : null}
       icon={Plus}
       onAction={() => setModalOpen(true)}
-      summary={[
-        ["Total repuestos", items.length],
-        ["Stock bajo", lowStockCount],
-        ["Valor estimado", formatMoney(totalValue)],
-      ]}
+      summary={getInventorySummary(items, isAdmin, formatMoney)}
     >
       <ModuleState isLoading={isLoading} error={error} />
       <Panel title="Listado de repuestos">
@@ -4279,7 +4274,7 @@ function SectionShell({ children, buttonLabel, icon: Icon, summary, onAction }) 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className={`grid gap-3 ${summary.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
           {summary.map(([label, value]) => (
             <div key={label} className="rounded-lg border border-line bg-white px-4 py-3 shadow-sm">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
